@@ -730,6 +730,8 @@ function enterVoice() {
   if (speechSynthesis.getVoices().length === 0) {
     try { speechSynthesis.speak(new SpeechSynthesisUtterance('')); } catch(_){}
   }
+  // Pre-warm Render server (cold start can take ~50s)
+  fetch(HEALTH).catch(()=>{});
   startVoiceListen();
 }
 
@@ -816,12 +818,25 @@ async function voiceProcessText(text) {
   }
   save(); renderHist();
 
+  // Show "server wakes up" hint if request is slow
+  const slowHint = setTimeout(() => {
+    if (voiceMode) setVoiceState('thinking', 'Server wacht auf, kann kurz dauern…', text);
+  }, 4000);
+
+  // Voice mode: ask for short, spoken-style answers
+  const voiceMessages = c.messages.slice();
+  voiceMessages.unshift({
+    role: 'system',
+    content: 'Sprachmodus aktiv: Antworte kurz und natürlich gesprochen, in 1–3 Sätzen. Keine Listen, keine Code-Blöcke, keine Markdown-Formatierung. Sprich direkt mit dem Nutzer.'
+  });
+
   try {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ messages: c.messages, model: currentModel })
+      body: JSON.stringify({ messages: voiceMessages, model: currentModel })
     });
+    clearTimeout(slowHint);
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(parseErr(errText) || `HTTP ${res.status}`);
@@ -836,6 +851,7 @@ async function voiceProcessText(text) {
     setVoiceState('speaking', 'Cytonix spricht…', preview);
     voiceSpeak(reply);
   } catch (err) {
+    clearTimeout(slowHint);
     if (!voiceMode) return;
     setVoiceState(null, 'Fehler: ' + (err.message || 'Unbekannt'), '');
     setTimeout(() => voiceMode && !voiceMuted && startVoiceListen(), 1500);
