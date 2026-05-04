@@ -113,6 +113,16 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 #sb:active:not(:disabled){transform:scale(.93)}
 #sb:disabled{opacity:.35;cursor:not-allowed}
 #sb svg{fill:#fff}
+.mic-btn{width:36px;height:36px;border-radius:9px;background:var(--s2);border:1px solid var(--b1);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;color:var(--t2);padding:0}
+.mic-btn:hover:not(:disabled){background:var(--b1);color:var(--t1)}
+.mic-btn:disabled{opacity:.35;cursor:not-allowed}
+.mic-btn.rec{background:var(--re);border-color:var(--re);color:#fff;animation:micPls 1.2s ease infinite}
+@keyframes micPls{0%,100%{box-shadow:0 0 0 0 rgba(255,107,107,.5)}50%{box-shadow:0 0 0 8px rgba(255,107,107,0)}}
+.mic-btn svg{width:16px;height:16px}
+.speak-btn{background:none;border:none;color:var(--mu);cursor:pointer;padding:4px 8px;border-radius:6px;display:inline-flex;align-items:center;gap:5px;font-size:.7rem;font-family:inherit;transition:all .15s;margin-top:8px}
+.speak-btn:hover{background:var(--s1);color:var(--t2)}
+.speak-btn.playing{color:var(--ac);background:rgba(124,109,250,.1)}
+.speak-btn svg{width:13px;height:13px}
 .inp-foot{margin-top:8px;font-size:.65rem;color:var(--mu);text-align:center}
 
 @media(max-width:640px){
@@ -164,6 +174,9 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
     <div class="inp-area">
       <div class="inp-shell">
         <textarea id="ui" placeholder="Frag Cytonix etwas…" rows="1"></textarea>
+        <button id="mic" class="mic-btn" onclick="toggleMic()" title="Sprechen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        </button>
         <button id="sb" onclick="doSend()">
           <svg width="15" height="15" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
         </button>
@@ -273,7 +286,8 @@ function addUser(inn, text) {
 }
 function addAI(inn, text) {
   const el=document.createElement('div'); el.className='ma-row';
-  el.innerHTML=`<div class="ava">CY</div><div class="ai-c"><div class="ai-lbl">Cytonix</div><div class="ab">${md(text)}</div></div>`;
+  const ttsAttr = escAttr(text);
+  el.innerHTML=`<div class="ava">CY</div><div class="ai-c"><div class="ai-lbl">Cytonix</div><div class="ab">${md(text)}</div><button class="speak-btn" onclick="speakMsg(this)" data-tts="${ttsAttr}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg><span>Vorlesen</span></button></div>`;
   inn.appendChild(el); scrollBot();
   return el.querySelector('.ab');
 }
@@ -309,6 +323,93 @@ function md(t) {
   }).join('');
 }
 function esc(t){ return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(t){ return t.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'&#10;'); }
+
+// SPEECH-TO-TEXT
+let recognition = null;
+let recActive = false;
+
+function initRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return null;
+  const r = new SR();
+  r.lang = 'de-DE';
+  r.continuous = false;
+  r.interimResults = true;
+  r.onresult = (e) => {
+    let t = '';
+    for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+    const ui = document.getElementById('ui');
+    ui.value = t;
+    ui.style.height='auto'; ui.style.height = Math.min(ui.scrollHeight, 170) + 'px';
+  };
+  r.onend = () => {
+    recActive = false;
+    document.getElementById('mic').classList.remove('rec');
+  };
+  r.onerror = (e) => {
+    recActive = false;
+    document.getElementById('mic').classList.remove('rec');
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      alert('Mikrofon-Zugriff verweigert. Bitte in den Browser-Einstellungen erlauben.');
+    }
+  };
+  return r;
+}
+
+function toggleMic() {
+  if (!recognition) recognition = initRecognition();
+  if (!recognition) {
+    alert('Spracheingabe wird von deinem Browser nicht unterstützt. Versuch es mit Chrome.');
+    return;
+  }
+  if (recActive) {
+    recognition.stop();
+    return;
+  }
+  document.getElementById('mic').classList.add('rec');
+  recActive = true;
+  try { recognition.start(); }
+  catch(e) {
+    recActive = false;
+    document.getElementById('mic').classList.remove('rec');
+  }
+}
+
+// TEXT-TO-SPEECH
+let currentSpeakBtn = null;
+
+function speak(text, btn) {
+  if (!('speechSynthesis' in window)) {
+    alert('Vorlese-Funktion wird von deinem Browser nicht unterstützt.');
+    return;
+  }
+  if (currentSpeakBtn === btn) {
+    speechSynthesis.cancel();
+    btn.classList.remove('playing');
+    currentSpeakBtn = null;
+    return;
+  }
+  speechSynthesis.cancel();
+  document.querySelectorAll('.speak-btn.playing').forEach(b => b.classList.remove('playing'));
+  const clean = text.replace(/```[\s\S]*?```/g, ' Codeblock. ').replace(/[*#`_~]/g, '');
+  const u = new SpeechSynthesisUtterance(clean);
+  u.lang = 'de-DE';
+  const voices = speechSynthesis.getVoices();
+  const de = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('de'));
+  if (de) u.voice = de;
+  u.onend = () => { btn.classList.remove('playing'); if (currentSpeakBtn===btn) currentSpeakBtn=null; };
+  u.onerror = () => { btn.classList.remove('playing'); if (currentSpeakBtn===btn) currentSpeakBtn=null; };
+  currentSpeakBtn = btn;
+  btn.classList.add('playing');
+  speechSynthesis.speak(u);
+}
+
+function speakMsg(btn) {
+  speak(btn.getAttribute('data-tts'), btn);
+}
+
+if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => {};
 
 async function qs(t){ document.getElementById('ui').value=t; await doSend(); }
 function retry(){ document.getElementById('ui').value=lastTxt; doSend(); }
