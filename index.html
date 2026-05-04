@@ -116,6 +116,27 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 
 .inp-area{padding:14px max(24px,calc(50% - 380px)) 20px;flex-shrink:0}
 .inp-tools{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+
+.voice-overlay{position:fixed;inset:0;z-index:200;background:radial-gradient(ellipse at center,#1a1530 0%,#0a0a14 75%);display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center}
+.voice-overlay.show{display:flex;animation:vFade .25s ease}
+@keyframes vFade{from{opacity:0}to{opacity:1}}
+.voice-close{position:absolute;top:18px;right:18px;background:rgba(255,255,255,.06);border:1px solid var(--b1);color:var(--t2);cursor:pointer;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.1rem;transition:all .15s}
+.voice-close:hover{background:rgba(255,255,255,.1);color:var(--t1)}
+.voice-orb{width:200px;height:200px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#a78bfa 0%,#7c6dfa 45%,#4c3ee8 100%);box-shadow:0 0 80px rgba(124,109,250,.4),inset 0 0 60px rgba(255,255,255,.08);transition:background .4s,box-shadow .4s;animation:vIdle 3.5s ease infinite}
+.voice-orb.listening{background:radial-gradient(circle at 30% 30%,#fca5a5 0%,#ef4444 50%,#b91c1c 100%);box-shadow:0 0 100px rgba(239,68,68,.55),inset 0 0 60px rgba(255,255,255,.1);animation:vListen 1.3s ease infinite}
+.voice-orb.thinking{background:radial-gradient(circle at 30% 30%,#fde68a 0%,#f59e0b 50%,#b45309 100%);box-shadow:0 0 100px rgba(245,158,11,.45);animation:vThink 1.2s linear infinite}
+.voice-orb.speaking{background:radial-gradient(circle at 30% 30%,#86efac 0%,#22d3a5 50%,#0f9d6e 100%);box-shadow:0 0 120px rgba(34,211,165,.55);animation:vSpeak .7s ease infinite}
+@keyframes vIdle{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+@keyframes vListen{0%,100%{transform:scale(.96);box-shadow:0 0 70px rgba(239,68,68,.4)}50%{transform:scale(1.12);box-shadow:0 0 140px rgba(239,68,68,.75)}}
+@keyframes vThink{0%{transform:scale(1) rotate(0deg)}50%{transform:scale(1.03)}100%{transform:scale(1) rotate(360deg)}}
+@keyframes vSpeak{0%,100%{transform:scale(.98)}50%{transform:scale(1.08)}}
+.voice-status{margin-top:36px;font-size:1.15rem;color:var(--t1);font-weight:500;letter-spacing:-.01em}
+.voice-trans{margin-top:14px;color:var(--t2);font-size:.88rem;max-width:90%;line-height:1.5;min-height:42px;max-height:120px;overflow-y:auto}
+.voice-bottom{position:absolute;bottom:32px;left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:14px}
+.voice-model{background:rgba(255,255,255,.05);border:1px solid var(--b1);border-radius:14px;padding:5px 11px;font-size:.7rem;color:var(--t2)}
+.voice-mute{background:var(--s2);border:1px solid var(--b1);color:var(--t1);width:54px;height:54px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.voice-mute:hover{background:var(--b1)}
+.voice-mute.muted{background:var(--re);border-color:var(--re);color:#fff}
 .tool-btn{background:var(--s1);border:1px solid var(--b1);border-radius:8px;padding:5px 10px;color:var(--t2);font-family:inherit;font-size:.72rem;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s}
 .tool-btn:hover{background:var(--s2);color:var(--t1);border-color:var(--b2)}
 .tool-btn svg{width:13px;height:13px}
@@ -212,6 +233,10 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 
     <div class="inp-area">
       <div class="inp-tools">
+        <button class="tool-btn" onclick="enterVoice()" type="button" title="Sprachmodus – mit Cytonix sprechen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          Sprechen
+        </button>
         <button class="tool-btn" onclick="askForImage()" type="button" title="Bild generieren">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
           Bild
@@ -232,6 +257,19 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
       </div>
       <div class="inp-foot">Cytonix kann Fehler machen — wichtige Infos überprüfen.</div>
     </div>
+  </div>
+</div>
+
+<div class="voice-overlay" id="voiceOverlay">
+  <button class="voice-close" onclick="exitVoice()" title="Beenden">✕</button>
+  <div class="voice-orb" id="voiceOrb"></div>
+  <div class="voice-status" id="voiceStatus">Hi! Antippe das Mikro…</div>
+  <div class="voice-trans" id="voiceTrans"></div>
+  <div class="voice-bottom">
+    <div class="voice-model" id="voiceModelLbl">Cytonix 1.3</div>
+    <button class="voice-mute" id="voiceMute" onclick="toggleVoiceMute()" title="Mikro stumm/aktiv">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+    </button>
   </div>
 </div>
 
@@ -650,6 +688,177 @@ function askForImage() {
 }
 function askForVideo() {
   alert('Video-Generierung kommt bald! Aktuell ist sie noch nicht verfügbar — kostenlose Video-APIs sind sehr begrenzt. Wir können das später mit einem bezahlten Anbieter (z.B. Replicate) freischalten.');
+}
+
+// VOICE MODE — continuous conversation
+let voiceMode    = false;
+let voiceMuted   = false;
+let voiceRec     = null;
+let voiceFinal   = '';
+let voiceRetry   = 0;
+
+function setVoiceState(state, statusMsg, transcript) {
+  const orb = document.getElementById('voiceOrb');
+  const st  = document.getElementById('voiceStatus');
+  const tr  = document.getElementById('voiceTrans');
+  orb.className = 'voice-orb';
+  if (state) orb.classList.add(state);
+  if (statusMsg !== undefined) st.textContent = statusMsg;
+  if (transcript !== undefined) tr.textContent = transcript;
+}
+
+function enterVoice() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { alert('Spracheingabe wird von deinem Browser nicht unterstützt. Probier Chrome.'); return; }
+  if (!('speechSynthesis' in window)) { alert('Vorlese-Funktion nicht unterstützt.'); return; }
+
+  voiceMode = true;
+  voiceMuted = false;
+  voiceRetry = 0;
+  document.getElementById('voiceMute').classList.remove('muted');
+  document.getElementById('voiceModelLbl').textContent = MODEL_LABELS[currentModel] || 'Cytonix 1.3';
+  document.getElementById('voiceOverlay').classList.add('show');
+
+  if (!cur) {
+    const id = Date.now().toString();
+    chats.unshift({id, title:'Sprachchat', messages:[]});
+    cur = id;
+    document.getElementById('tbt').textContent = 'Sprachchat';
+    save(); renderHist();
+  }
+  // Trigger voice list load on iOS
+  if (speechSynthesis.getVoices().length === 0) {
+    try { speechSynthesis.speak(new SpeechSynthesisUtterance('')); } catch(_){}
+  }
+  startVoiceListen();
+}
+
+function exitVoice() {
+  voiceMode = false;
+  document.getElementById('voiceOverlay').classList.remove('show');
+  if (voiceRec) { try { voiceRec.abort(); } catch(_){} voiceRec = null; }
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+}
+
+function toggleVoiceMute() {
+  voiceMuted = !voiceMuted;
+  document.getElementById('voiceMute').classList.toggle('muted', voiceMuted);
+  if (voiceMuted) {
+    if (voiceRec) { try { voiceRec.abort(); } catch(_){} }
+    setVoiceState(null, 'Mikro stumm – tippe um wieder zuzuhören', '');
+  } else if (voiceMode) {
+    startVoiceListen();
+  }
+}
+
+function startVoiceListen() {
+  if (!voiceMode || voiceMuted) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  voiceFinal = '';
+  voiceRec = new SR();
+  voiceRec.lang = 'de-DE';
+  voiceRec.continuous = false;
+  voiceRec.interimResults = true;
+
+  voiceRec.onstart = () => setVoiceState('listening', 'Höre zu…', '');
+  voiceRec.onresult = (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) voiceFinal += t;
+      else interim += t;
+    }
+    document.getElementById('voiceTrans').textContent = (voiceFinal + interim).trim();
+  };
+  voiceRec.onend = () => {
+    if (!voiceMode) return;
+    if (voiceFinal.trim().length >= 2) {
+      voiceRetry = 0;
+      voiceProcessText(voiceFinal.trim());
+    } else if (!voiceMuted) {
+      voiceRetry++;
+      if (voiceRetry > 4) {
+        setVoiceState(null, 'Nichts gehört – tippe das Mikro zum Neustart', '');
+      } else {
+        setTimeout(startVoiceListen, 250);
+      }
+    }
+  };
+  voiceRec.onerror = (e) => {
+    if (!voiceMode) return;
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      setVoiceState(null, 'Mikrofon blockiert. Erlaube Zugriff in den Browser-Einstellungen.', '');
+      voiceMuted = true;
+      document.getElementById('voiceMute').classList.add('muted');
+      return;
+    }
+    if (e.error === 'no-speech' || e.error === 'aborted') {
+      setTimeout(() => voiceMode && !voiceMuted && startVoiceListen(), 300);
+      return;
+    }
+    setVoiceState(null, 'Fehler: ' + e.error, '');
+    setTimeout(() => voiceMode && !voiceMuted && startVoiceListen(), 1200);
+  };
+
+  try { voiceRec.start(); }
+  catch(_) { setTimeout(() => voiceMode && !voiceMuted && startVoiceListen(), 300); }
+}
+
+async function voiceProcessText(text) {
+  if (!voiceMode) return;
+  setVoiceState('thinking', 'Cytonix denkt…', text);
+
+  const c = chats.find(x => x.id === cur);
+  c.messages.push({role:'user', content: text});
+  if (c.messages.length === 1 || c.title === 'Sprachchat' || c.title === 'Neuer Chat') {
+    c.title = text.slice(0,36) + (text.length > 36 ? '…' : '');
+    document.getElementById('tbt').textContent = c.title;
+  }
+  save(); renderHist();
+
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ messages: c.messages, model: currentModel })
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(parseErr(errText) || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    const reply = data.reply || '(leere Antwort)';
+    c.messages.push({role:'assistant', content: reply});
+    save();
+
+    if (!voiceMode) return;
+    const preview = reply.length > 240 ? reply.slice(0,240) + '…' : reply;
+    setVoiceState('speaking', 'Cytonix spricht…', preview);
+    voiceSpeak(reply);
+  } catch (err) {
+    if (!voiceMode) return;
+    setVoiceState(null, 'Fehler: ' + (err.message || 'Unbekannt'), '');
+    setTimeout(() => voiceMode && !voiceMuted && startVoiceListen(), 1500);
+  }
+}
+
+function voiceSpeak(text) {
+  if (!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const clean = text.replace(/```[\s\S]*?```/g, ' Codeblock. ').replace(/[*#`_~]/g, '');
+  const u = new SpeechSynthesisUtterance(clean);
+  u.lang = 'de-DE';
+  const voices = speechSynthesis.getVoices();
+  const de = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('de'));
+  if (de) u.voice = de;
+  u.onend = () => {
+    if (voiceMode && !voiceMuted) setTimeout(startVoiceListen, 250);
+    else if (voiceMode) setVoiceState(null, 'Mikro stumm – tippe um wieder zuzuhören', '');
+  };
+  u.onerror = () => {
+    if (voiceMode && !voiceMuted) setTimeout(startVoiceListen, 250);
+  };
+  speechSynthesis.speak(u);
 }
 
 setModelLabel();
