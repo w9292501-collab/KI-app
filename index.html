@@ -343,8 +343,14 @@ function addUser(inn, text) {
 function addAI(inn, text, imgUrl) {
   const el=document.createElement('div'); el.className='ma-row';
   const ttsAttr = escAttr(text);
+  const uid = 'img-'+Date.now()+'-'+Math.floor(Math.random()*1e6);
   const imgHtml = imgUrl
-    ? `<div class="gen-img-wrap"><img class="gen-img" src="${imgUrl}" alt="Generiertes Bild" onload="scrollBot()"/></div>`
+    ? `<div class="gen-img-wrap">
+         <div class="img-loading" id="ld-${uid}"><div class="img-spin"></div>Bild wird generiert…</div>
+         <img class="gen-img" id="${uid}" style="display:none" src="${imgUrl}" alt="Generiertes Bild"
+              onload="document.getElementById('ld-${uid}').style.display='none';this.style.display='block';scrollBot()"
+              onerror="document.getElementById('ld-${uid}').innerHTML='⚠️ Bild konnte nicht geladen werden.'"/>
+       </div>`
     : '';
   el.innerHTML=`<div class="ava">CY</div><div class="ai-c"><div class="ai-lbl">Cytonix</div><div class="ab">${md(text)}</div>${imgHtml}<button class="speak-btn" onclick="speakMsg(this)" data-tts="${ttsAttr}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg><span>Vorlesen</span></button></div>`;
   inn.appendChild(el); scrollBot();
@@ -504,7 +510,20 @@ async function doSend() {
   busy = true;
   document.getElementById('sb').disabled = true;
 
-  const wantImg = wantsImage(text);
+  if (wantsImage(text) || forceImageNext) {
+    forceImageNext = false;
+    const prompt = imagePromptFrom(text);
+    const imageUrl = pollinationsURL(prompt);
+    const reply = `Hier ist dein Bild: **${prompt}**`;
+    rmTyping();
+    addAI(inn2, reply, imageUrl);
+    c.messages.push({role:'assistant', content: reply, image: imageUrl});
+    save();
+    busy = false;
+    document.getElementById('sb').disabled = false;
+    inp.focus();
+    return;
+  }
 
   try {
     const res = await fetch(API_URL, {
@@ -519,16 +538,8 @@ async function doSend() {
     const data = await res.json();
     const reply = data.reply || '(leere Antwort)';
     rmTyping();
-
-    let imageUrl = null;
-    if (wantImg) {
-      const prompt = imagePromptFrom(text);
-      imageUrl = pollinationsURL(prompt);
-    }
-    addAI(inn2, reply, imageUrl);
-    const stored = {role:'assistant', content:reply};
-    if (imageUrl) stored.image = imageUrl;
-    c.messages.push(stored);
+    addAI(inn2, reply);
+    c.messages.push({role:'assistant', content:reply});
     save();
   } catch (err) {
     rmTyping();
@@ -601,37 +612,40 @@ document.addEventListener('click', () => {
 });
 
 // IMAGE GENERATION
+let forceImageNext = false;
+
 function wantsImage(t) {
-  return /\b(erstell|generier|mach|zeig|zeichn|male|malen|create|generate|draw)\b[\s\S]{0,30}\b(bild|foto|image|picture|illustration)\b/i.test(t)
-    || /\bbild von\b/i.test(t)
-    || /\bfoto von\b/i.test(t)
-    || /\bimage of\b/i.test(t)
-    || /\bpicture of\b/i.test(t);
+  if (/\b(erstell\w*|generier\w*|mach\w*|zeig\w*|create\w*|generate\w*|show\w*)\b[\s\S]{0,40}\b(bild|foto|image|picture|illustration|gemälde)\b/i.test(t)) return true;
+  if (/\b(bild|foto|image|picture)\s+(von|of)\b/i.test(t)) return true;
+  if (/\b(zeichn\w*|male\b|malen|paint\w*|draw\w*)\b/i.test(t)) return true;
+  return false;
 }
 function imagePromptFrom(t) {
   return t
-    .replace(/\b(bitte|kannst du|könntest du|please)\b/gi, '')
-    .replace(/\b(erstell\w*|generier\w*|mach\w*|zeig\w*|zeichn\w*|male\b|malen|create|generate|draw)\b/gi, '')
+    .replace(/\b(bitte|kannst du|könntest du|please|can you)\b/gi, '')
+    .replace(/\b(erstell\w*|generier\w*|mach\w*|zeig\w*|zeichn\w*|male\b|malen|paint\w*|create\w*|generate\w*|draw\w*|show\w*)\b/gi, '')
     .replace(/\b(mir|für mich|me)\b/gi, '')
     .replace(/\b(ein(e|en|es)?|a|an)\b/gi, '')
-    .replace(/\b(bild|foto|image|picture|illustration)\b/gi, '')
-    .replace(/\bvon\b|\bof\b/gi, '')
+    .replace(/\b(bild|foto|image|picture|illustration|gemälde)\b/gi, '')
+    .replace(/\b(von|of)\b/gi, '')
     .replace(/\s+/g, ' ')
     .trim() || t;
 }
 function pollinationsURL(prompt) {
   const seed = Math.floor(Math.random() * 1e9);
   return 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt)
-       + '?width=768&height=768&seed=' + seed + '&nologo=true';
+       + '?width=768&height=768&seed=' + seed + '&nologo=true&enhance=true';
 }
 function askForImage() {
   const ui = document.getElementById('ui');
+  forceImageNext = true;
   if (!ui.value.trim()) {
-    ui.value = 'Erstelle ein Bild von ';
+    ui.value = 'Bild von ';
   } else if (!/bild|foto|image|picture/i.test(ui.value)) {
-    ui.value = 'Erstelle ein Bild von ' + ui.value;
+    ui.value = 'Bild von ' + ui.value;
   }
   ui.focus();
+  ui.setSelectionRange(ui.value.length, ui.value.length);
   ui.dispatchEvent(new Event('input'));
 }
 function askForVideo() {
