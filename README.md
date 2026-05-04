@@ -34,9 +34,8 @@ Du bekommst eine URL wie `https://cytonix.onrender.com` — das ist deine live C
 ```bash
 cp .env.example .env
 # Trage deinen GROQ_API_KEY in die .env-Datei ein
-cd backend
 pip install -r requirements.txt
-./run.sh
+./backend/run.sh
 ```
 
 Browser: http://localhost:8000
@@ -54,9 +53,8 @@ CYTONIX_PROVIDER=ollama
 ```
 
 ```bash
-cd backend
 pip install -r requirements.txt
-./run.sh
+./backend/run.sh
 ```
 
 ---
