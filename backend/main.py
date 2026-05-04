@@ -1,9 +1,10 @@
-"""Cytonix Backend — FastAPI server with multiple AI providers."""
+"""Cytonix Backend — FastAPI server with multiple AI providers and model presets."""
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -21,8 +22,27 @@ except ImportError:
 PROVIDER = os.getenv("CYTONIX_PROVIDER", "groq").lower()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+CYTONIX_MODELS = {
+    "cytonix-1.1": {
+        "groq_id": "llama-3.1-8b-instant",
+        "label": "Cytonix 1.1",
+        "description": "Schnell – ideal für kurze Antworten",
+    },
+    "cytonix-1.2": {
+        "groq_id": "deepseek-r1-distill-llama-70b",
+        "label": "Cytonix 1.2",
+        "description": "Reasoning – logisches Denken",
+    },
+    "cytonix-1.3": {
+        "groq_id": "llama-3.3-70b-versatile",
+        "label": "Cytonix 1.3",
+        "description": "Leistungsstark – komplexe Probleme",
+    },
+}
+DEFAULT_CYTONIX_MODEL = os.getenv("CYTONIX_DEFAULT_MODEL", "cytonix-1.3")
+GROQ_MODEL_FALLBACK = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
@@ -36,7 +56,7 @@ SYSTEM_PROMPT = (
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-app = FastAPI(title="Cytonix API", version="0.2.0")
+app = FastAPI(title="Cytonix API", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,6 +73,7 @@ class Message(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: List[Message] = Field(..., min_length=1)
+    model: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -61,8 +82,25 @@ class ChatResponse(BaseModel):
     provider: str
 
 
-def _active_model() -> str:
-    return GROQ_MODEL if PROVIDER == "groq" else OLLAMA_MODEL
+def _resolve_model(requested: Optional[str]) -> tuple[str, str]:
+    """Return (cytonix_label, groq_model_id) for the requested model."""
+    key = (requested or DEFAULT_CYTONIX_MODEL).lower()
+    if key in CYTONIX_MODELS:
+        return key, CYTONIX_MODELS[key]["groq_id"]
+    return DEFAULT_CYTONIX_MODEL, CYTONIX_MODELS.get(
+        DEFAULT_CYTONIX_MODEL, {"groq_id": GROQ_MODEL_FALLBACK}
+    )["groq_id"]
+
+
+@app.get("/api/models")
+async def models():
+    return {
+        "default": DEFAULT_CYTONIX_MODEL,
+        "models": [
+            {"id": k, **{kk: vv for kk, vv in v.items() if kk != "groq_id"}}
+            for k, v in CYTONIX_MODELS.items()
+        ],
+    }
 
 
 @app.get("/api/health")
@@ -72,10 +110,9 @@ async def health():
             return {
                 "ok": False,
                 "provider": "groq",
-                "model": GROQ_MODEL,
                 "error": "GROQ_API_KEY ist nicht gesetzt.",
             }
-        return {"ok": True, "provider": "groq", "model": GROQ_MODEL}
+        return {"ok": True, "provider": "groq", "default_model": DEFAULT_CYTONIX_MODEL}
 
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
@@ -86,14 +123,19 @@ async def health():
         return {"ok": False, "provider": "ollama", "model": OLLAMA_MODEL, "error": str(e)}
 
 
-async def _chat_groq(messages: list[dict]) -> str:
+def _strip_thinking(text: str) -> str:
+    """Remove <think>...</think> blocks emitted by reasoning models."""
+    return re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE).strip()
+
+
+async def _chat_groq(messages: list[dict], groq_model: str) -> str:
     if not GROQ_API_KEY:
         raise HTTPException(
             status_code=503,
             detail="GROQ_API_KEY fehlt. Setze ihn als Umgebungsvariable.",
         )
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=90.0) as client:
             r = await client.post(
                 GROQ_URL,
                 headers={
@@ -101,7 +143,7 @@ async def _chat_groq(messages: list[dict]) -> str:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": GROQ_MODEL,
+                    "model": groq_model,
                     "messages": messages,
                     "stream": False,
                 },
@@ -121,9 +163,10 @@ async def _chat_groq(messages: list[dict]) -> str:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Backend-Fehler: {e}")
     try:
-        return data["choices"][0]["message"]["content"].strip()
+        content = data["choices"][0]["message"]["content"]
     except (KeyError, IndexError):
         raise HTTPException(status_code=502, detail="Unerwartete Groq-Antwort.")
+    return _strip_thinking(content).strip()
 
 
 async def _chat_ollama(messages: list[dict]) -> str:
@@ -156,23 +199,27 @@ async def _chat_ollama(messages: list[dict]) -> str:
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
+    cytonix_id, groq_model = _resolve_model(req.model)
+
     payload = [{"role": "system", "content": SYSTEM_PROMPT}]
     for m in req.messages:
         payload.append({"role": m.role, "content": m.content})
 
     if PROVIDER == "groq":
-        reply = await _chat_groq(payload)
+        reply = await _chat_groq(payload, groq_model)
+        active_model = cytonix_id
     elif PROVIDER == "ollama":
         reply = await _chat_ollama(payload)
+        active_model = OLLAMA_MODEL
     else:
         raise HTTPException(
             status_code=500,
-            detail=f"Unbekannter CYTONIX_PROVIDER: '{PROVIDER}' (erwartet: 'groq' oder 'ollama')",
+            detail=f"Unbekannter CYTONIX_PROVIDER: '{PROVIDER}'",
         )
 
     if not reply:
         raise HTTPException(status_code=502, detail="Leere Antwort vom Modell.")
-    return ChatResponse(reply=reply, model=_active_model(), provider=PROVIDER)
+    return ChatResponse(reply=reply, model=active_model, provider=PROVIDER)
 
 
 if (PROJECT_ROOT / "index.html").exists():

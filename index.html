@@ -52,6 +52,17 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 .mbtn{background:none;border:none;color:var(--mu);cursor:pointer;padding:6px;border-radius:8px;display:flex;transition:background .15s,color .15s;flex-shrink:0}
 .mbtn:hover{background:var(--s1);color:var(--t2)}
 .tb-title{font-size:.86rem;font-weight:500;color:var(--t2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.model-pick{background:var(--s1);border:1px solid var(--b1);border-radius:8px;padding:5px 9px;display:flex;align-items:center;gap:5px;color:var(--t1);font-family:inherit;font-size:.72rem;font-weight:500;cursor:pointer;flex-shrink:0;transition:all .15s}
+.model-pick:hover{background:var(--s2);border-color:var(--b2)}
+.model-pick svg{opacity:.6}
+.model-menu{position:absolute;top:54px;right:20px;width:280px;max-width:calc(100vw - 24px);background:var(--s1);border:1px solid var(--b1);border-radius:12px;padding:6px;display:none;z-index:50;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.model-menu.show{display:block;animation:mIn .18s ease}
+.mm-item{padding:10px 12px;border-radius:9px;cursor:pointer;transition:background .15s}
+.mm-item:hover{background:var(--s2)}
+.mm-item.active{background:rgba(124,109,250,.12)}
+.mm-name{font-size:.82rem;font-weight:600;color:var(--t1);margin-bottom:3px;display:flex;align-items:center;gap:6px}
+.mm-tag{font-size:.65rem;font-weight:500;color:var(--t2);background:var(--bg);padding:2px 7px;border-radius:10px;border:1px solid var(--b1)}
+.mm-desc{font-size:.7rem;color:var(--t2);line-height:1.45}
 .chip{display:flex;align-items:center;gap:6px;background:rgba(34,211,165,.08);border:1px solid rgba(34,211,165,.18);border-radius:20px;padding:4px 10px;font-size:.65rem;color:var(--gr);font-weight:500;flex-shrink:0}
 .chip.off{background:rgba(255,107,107,.08);border-color:rgba(255,107,107,.18);color:var(--re)}
 .chip.off .dot{background:var(--re)}
@@ -104,6 +115,15 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 .ab hr{border:none;border-top:1px solid var(--b1);margin:14px 0}
 
 .inp-area{padding:14px max(24px,calc(50% - 380px)) 20px;flex-shrink:0}
+.inp-tools{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+.tool-btn{background:var(--s1);border:1px solid var(--b1);border-radius:8px;padding:5px 10px;color:var(--t2);font-family:inherit;font-size:.72rem;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s}
+.tool-btn:hover{background:var(--s2);color:var(--t1);border-color:var(--b2)}
+.tool-btn svg{width:13px;height:13px}
+.gen-img{margin-top:10px;display:block;width:100%;max-width:480px;border-radius:12px;border:1px solid var(--b1)}
+.gen-img-wrap{margin-top:10px;display:inline-block;max-width:100%}
+.img-loading{display:flex;align-items:center;gap:9px;font-size:.78rem;color:var(--t2);padding:10px 14px;background:var(--s1);border:1px solid var(--b1);border-radius:10px;margin-top:10px}
+.img-spin{width:14px;height:14px;border:2px solid var(--b2);border-top-color:var(--ac);border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
 .inp-shell{background:var(--s1);border:1px solid var(--b1);border-radius:16px;display:flex;align-items:flex-end;gap:10px;padding:12px 12px 12px 18px;transition:border-color .2s,box-shadow .2s}
 .inp-shell:focus-within{border-color:rgba(124,109,250,.5);box-shadow:0 0 0 3px rgba(124,109,250,.07)}
 #ui{flex:1;background:none;border:none;color:var(--t1);font-family:inherit;font-size:.875rem;line-height:1.55;resize:none;outline:none;min-height:24px;max-height:170px}
@@ -166,12 +186,41 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
         </svg>
       </button>
       <span class="tb-title" id="tbt">Neuer Chat</span>
+      <button class="model-pick" id="modelPick" onclick="toggleModelMenu(event)" type="button">
+        <span id="modelLabel">Cytonix 1.3</span>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
       <div class="chip" id="status"><div class="dot"></div><span id="statusTxt">Verbinde…</span></div>
+    </div>
+
+    <div id="modelMenu" class="model-menu" onclick="event.stopPropagation()">
+      <div class="mm-item" data-model="cytonix-1.1" onclick="selectModel('cytonix-1.1')">
+        <div class="mm-name">Cytonix 1.1 <span class="mm-tag">⚡ Schnell</span></div>
+        <div class="mm-desc">Sehr schnelle Antworten – ideal für kurze Fragen</div>
+      </div>
+      <div class="mm-item" data-model="cytonix-1.2" onclick="selectModel('cytonix-1.2')">
+        <div class="mm-name">Cytonix 1.2 <span class="mm-tag">🧠 Logisch</span></div>
+        <div class="mm-desc">Reasoning-Modus für logisches Denken</div>
+      </div>
+      <div class="mm-item" data-model="cytonix-1.3" onclick="selectModel('cytonix-1.3')">
+        <div class="mm-name">Cytonix 1.3 <span class="mm-tag">💪 Stark</span></div>
+        <div class="mm-desc">Leistungsstärkste Variante für komplexe Aufgaben</div>
+      </div>
     </div>
 
     <div id="msgs"></div>
 
     <div class="inp-area">
+      <div class="inp-tools">
+        <button class="tool-btn" onclick="askForImage()" type="button" title="Bild generieren">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          Bild
+        </button>
+        <button class="tool-btn" onclick="askForVideo()" type="button" title="Video generieren (kommt bald)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+          Video
+        </button>
+      </div>
       <div class="inp-shell">
         <textarea id="ui" placeholder="Frag Cytonix etwas…" rows="1"></textarea>
         <button id="mic" class="mic-btn" onclick="toggleMic()" title="Sprechen">
@@ -191,11 +240,18 @@ const API_BASE = (location.protocol === 'file:') ? 'http://localhost:8000' : '';
 const API_URL  = API_BASE + '/api/chat';
 const HEALTH   = API_BASE + '/api/health';
 
-let chats   = JSON.parse(localStorage.getItem('cytonix_chats')||'[]');
-let cur     = null;
-let busy    = false;
-let lastTxt = '';
-let sbOpen  = window.innerWidth > 640;
+let chats        = JSON.parse(localStorage.getItem('cytonix_chats')||'[]');
+let cur          = null;
+let busy         = false;
+let lastTxt      = '';
+let sbOpen       = window.innerWidth > 640;
+let currentModel = localStorage.getItem('cytonix_model') || 'cytonix-1.3';
+
+const MODEL_LABELS = {
+  'cytonix-1.1': 'Cytonix 1.1',
+  'cytonix-1.2': 'Cytonix 1.2',
+  'cytonix-1.3': 'Cytonix 1.3'
+};
 
 if (!sbOpen) document.getElementById('panel').classList.add('gone');
 
@@ -230,7 +286,7 @@ function openChat(id) {
     const inn = mkInner();
     c.messages.forEach(m => {
       if (m.role==='user') addUser(inn, m.content);
-      else addAI(inn, m.content);
+      else addAI(inn, m.content, m.image);
     });
   }
   renderHist();
@@ -265,7 +321,7 @@ function renderWelcome() {
     <p class="wp">Stell mir eine Frage, lass mich Code schreiben oder Texte verfassen.</p>
     <div class="grid">
       <button class="gcard" onclick="qs('Stell dich kurz vor — wer bist du?')"><span class="gc-ic">✨</span><span class="gc-t">Wer bist du?</span><span class="gc-s">Lerne Cytonix kennen</span></button>
-      <button class="gcard" onclick="qs('Erkläre mir wie neuronale Netze funktionieren')"><span class="gc-ic">🧠</span><span class="gc-t">Wie funktioniert KI?</span><span class="gc-s">Einfach erklärt</span></button>
+      <button class="gcard" onclick="qs('Erstelle ein Bild von einem Drachen im Weltraum')"><span class="gc-ic">🎨</span><span class="gc-t">Bild erstellen</span><span class="gc-s">Drache im Weltraum</span></button>
       <button class="gcard" onclick="qs('Schreib mir Python-Code für eine Todo-Liste')"><span class="gc-ic">💻</span><span class="gc-t">Code schreiben</span><span class="gc-s">Python Todo-Liste</span></button>
       <button class="gcard" onclick="qs('Was ist der Unterschied zwischen Python und JavaScript?')"><span class="gc-ic">⚡</span><span class="gc-t">Sprachen vergleichen</span><span class="gc-s">Python vs JavaScript</span></button>
     </div>
@@ -284,10 +340,13 @@ function addUser(inn, text) {
   el.innerHTML=`<div class="ub">${esc(text).replace(/\n/g,'<br/>')}</div>`;
   inn.appendChild(el); scrollBot();
 }
-function addAI(inn, text) {
+function addAI(inn, text, imgUrl) {
   const el=document.createElement('div'); el.className='ma-row';
   const ttsAttr = escAttr(text);
-  el.innerHTML=`<div class="ava">CY</div><div class="ai-c"><div class="ai-lbl">Cytonix</div><div class="ab">${md(text)}</div><button class="speak-btn" onclick="speakMsg(this)" data-tts="${ttsAttr}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg><span>Vorlesen</span></button></div>`;
+  const imgHtml = imgUrl
+    ? `<div class="gen-img-wrap"><img class="gen-img" src="${imgUrl}" alt="Generiertes Bild" onload="scrollBot()"/></div>`
+    : '';
+  el.innerHTML=`<div class="ava">CY</div><div class="ai-c"><div class="ai-lbl">Cytonix</div><div class="ab">${md(text)}</div>${imgHtml}<button class="speak-btn" onclick="speakMsg(this)" data-tts="${ttsAttr}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg><span>Vorlesen</span></button></div>`;
   inn.appendChild(el); scrollBot();
   return el.querySelector('.ab');
 }
@@ -445,11 +504,13 @@ async function doSend() {
   busy = true;
   document.getElementById('sb').disabled = true;
 
+  const wantImg = wantsImage(text);
+
   try {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ messages: c.messages })
+      body: JSON.stringify({ messages: c.messages, model: currentModel })
     });
     if (!res.ok) {
       const errText = await res.text();
@@ -458,8 +519,16 @@ async function doSend() {
     const data = await res.json();
     const reply = data.reply || '(leere Antwort)';
     rmTyping();
-    addAI(inn2, reply);
-    c.messages.push({role:'assistant', content:reply});
+
+    let imageUrl = null;
+    if (wantImg) {
+      const prompt = imagePromptFrom(text);
+      imageUrl = pollinationsURL(prompt);
+    }
+    addAI(inn2, reply, imageUrl);
+    const stored = {role:'assistant', content:reply};
+    if (imageUrl) stored.image = imageUrl;
+    c.messages.push(stored);
     save();
   } catch (err) {
     rmTyping();
@@ -510,6 +579,66 @@ ui.addEventListener('keydown', (e) => {
   if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
 });
 
+// MODEL SELECTOR
+function setModelLabel() {
+  document.getElementById('modelLabel').textContent = MODEL_LABELS[currentModel] || 'Cytonix 1.3';
+  document.querySelectorAll('.mm-item').forEach(it => {
+    it.classList.toggle('active', it.dataset.model === currentModel);
+  });
+}
+function toggleModelMenu(e) {
+  if (e) e.stopPropagation();
+  document.getElementById('modelMenu').classList.toggle('show');
+}
+function selectModel(id) {
+  currentModel = id;
+  localStorage.setItem('cytonix_model', id);
+  setModelLabel();
+  document.getElementById('modelMenu').classList.remove('show');
+}
+document.addEventListener('click', () => {
+  document.getElementById('modelMenu').classList.remove('show');
+});
+
+// IMAGE GENERATION
+function wantsImage(t) {
+  return /\b(erstell|generier|mach|zeig|zeichn|male|malen|create|generate|draw)\b[\s\S]{0,30}\b(bild|foto|image|picture|illustration)\b/i.test(t)
+    || /\bbild von\b/i.test(t)
+    || /\bfoto von\b/i.test(t)
+    || /\bimage of\b/i.test(t)
+    || /\bpicture of\b/i.test(t);
+}
+function imagePromptFrom(t) {
+  return t
+    .replace(/\b(bitte|kannst du|könntest du|please)\b/gi, '')
+    .replace(/\b(erstell\w*|generier\w*|mach\w*|zeig\w*|zeichn\w*|male\b|malen|create|generate|draw)\b/gi, '')
+    .replace(/\b(mir|für mich|me)\b/gi, '')
+    .replace(/\b(ein(e|en|es)?|a|an)\b/gi, '')
+    .replace(/\b(bild|foto|image|picture|illustration)\b/gi, '')
+    .replace(/\bvon\b|\bof\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim() || t;
+}
+function pollinationsURL(prompt) {
+  const seed = Math.floor(Math.random() * 1e9);
+  return 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt)
+       + '?width=768&height=768&seed=' + seed + '&nologo=true';
+}
+function askForImage() {
+  const ui = document.getElementById('ui');
+  if (!ui.value.trim()) {
+    ui.value = 'Erstelle ein Bild von ';
+  } else if (!/bild|foto|image|picture/i.test(ui.value)) {
+    ui.value = 'Erstelle ein Bild von ' + ui.value;
+  }
+  ui.focus();
+  ui.dispatchEvent(new Event('input'));
+}
+function askForVideo() {
+  alert('Video-Generierung kommt bald! Aktuell ist sie noch nicht verfügbar — kostenlose Video-APIs sind sehr begrenzt. Wir können das später mit einem bezahlten Anbieter (z.B. Replicate) freischalten.');
+}
+
+setModelLabel();
 renderWelcome();
 renderHist();
 checkHealth();
