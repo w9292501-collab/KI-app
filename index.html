@@ -164,6 +164,20 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 .voice-mute{background:var(--s2);border:1px solid var(--b1);color:var(--t1);width:54px;height:54px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
 .voice-mute:hover{background:var(--b1)}
 .voice-mute.muted{background:var(--re);border-color:var(--re);color:#fff}
+.voice-controls{display:flex;align-items:center;gap:14px}
+.voice-screen{background:var(--s2);border:1px solid var(--b1);color:var(--t1);width:54px;height:54px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;position:relative}
+.voice-screen:hover{background:var(--b1)}
+.voice-screen svg{width:22px;height:22px}
+.voice-screen.active{background:var(--gr);border-color:var(--gr);color:#0d0d0d}
+.voice-screen.active::after{content:'';position:absolute;top:-2px;right:-2px;width:11px;height:11px;border-radius:50%;background:var(--re);border:2px solid #0a0a14;animation:pls 1.5s ease infinite}
+.screen-prev{position:absolute;top:18px;left:18px;width:160px;border-radius:10px;border:1px solid var(--b1);overflow:hidden;background:#000;display:none;box-shadow:0 4px 20px rgba(0,0,0,.6);z-index:3}
+.screen-prev.show{display:block}
+.screen-prev video{width:100%;height:auto;display:block;background:#000;max-height:120px;object-fit:cover}
+.screen-prev-lbl{font-size:.62rem;color:var(--t1);padding:5px 9px;background:rgba(0,0,0,.55);display:flex;align-items:center;gap:6px;letter-spacing:.03em}
+.screen-prev-lbl::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--re);animation:pls 1.2s ease infinite;flex-shrink:0}
+.privacy-warn{position:absolute;top:18px;left:50%;transform:translateX(-50%);max-width:min(440px,calc(100% - 120px));background:linear-gradient(135deg,rgba(255,107,107,.96),rgba(220,38,38,.96));color:#fff;padding:11px 16px;border-radius:12px;font-size:.78rem;line-height:1.5;display:none;z-index:5;box-shadow:0 6px 24px rgba(0,0,0,.4);text-align:left}
+.privacy-warn.show{display:block;animation:mIn .25s ease}
+.privacy-warn strong{display:block;margin-bottom:3px;font-size:.82rem;font-weight:600}
 .tool-btn{background:var(--s1);border:1px solid var(--b1);border-radius:8px;padding:5px 10px;color:var(--t2);font-family:inherit;font-size:.72rem;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s}
 .tool-btn:hover{background:var(--s2);color:var(--t1);border-color:var(--b2)}
 .tool-btn svg{width:13px;height:13px}
@@ -306,14 +320,24 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 
 <div class="voice-overlay" id="voiceOverlay">
   <button class="voice-close" onclick="exitVoice()" title="Beenden">✕</button>
+  <div class="screen-prev" id="screenPrev">
+    <div class="screen-prev-lbl">Bildschirm geteilt</div>
+    <video id="screenVid" autoplay muted playsinline></video>
+  </div>
+  <div class="privacy-warn" id="privacyWarn"></div>
   <div class="voice-orb" id="voiceOrb"></div>
   <div class="voice-status" id="voiceStatus">Hi! Antippe das Mikro…</div>
   <div class="voice-trans" id="voiceTrans"></div>
   <div class="voice-bottom">
     <div class="voice-model" id="voiceModelLbl">Cytonix 1.3</div>
-    <button class="voice-mute" id="voiceMute" onclick="toggleVoiceMute()" title="Mikro stumm/aktiv">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-    </button>
+    <div class="voice-controls">
+      <button class="voice-mute" id="voiceMute" onclick="toggleVoiceMute()" title="Mikro stumm/aktiv">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      </button>
+      <button class="voice-screen" id="voiceScreen" onclick="toggleVoiceScreen()" title="Bildschirm teilen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      </button>
+    </div>
   </div>
 </div>
 
@@ -867,6 +891,107 @@ let voiceMuted   = false;
 let voiceRec     = null;
 let voiceFinal   = '';
 let voiceRetry   = 0;
+let screenStream = null;
+let screenVideoEl = null;
+
+// Privacy filter — patterns that should never be read aloud or echoed
+const SENSITIVE_PATTERNS = [
+  { re: /\b(?:\d[ -]?){13,19}\b/g,                               label: 'Kreditkarten-Nummer' },
+  { re: /\bDE\d{2}[ ]?(?:\d{4}[ ]?){4}\d{2}\b/gi,                label: 'IBAN' },
+  { re: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,           label: 'E-Mail-Adresse' },
+  { re: /\b(passwort|password|passwd|kennwort|cvv|cvc|geheimcode)\s*[:=]\s*\S+/gi, label: 'Passwort/PIN/TAN' },
+  { re: /\b\d{3}-\d{2}-\d{4}\b/g,                                label: 'Sozialversicherungs-Nr.' },
+  { re: /sk-[A-Za-z0-9]{16,}/g,                                  label: 'API-Key' }
+];
+
+function detectSensitive(text) {
+  if (!text) return [];
+  const found = new Set();
+  for (const p of SENSITIVE_PATTERNS) {
+    p.re.lastIndex = 0;
+    if (p.re.test(text)) found.add(p.label);
+    p.re.lastIndex = 0;
+  }
+  return [...found];
+}
+
+function redactSensitive(text) {
+  if (!text) return text;
+  let out = text;
+  for (const p of SENSITIVE_PATTERNS) {
+    out = out.replace(p.re, '[ZENSIERT]');
+  }
+  return out;
+}
+
+function showPrivacyWarning(title, msg, ms) {
+  const el = document.getElementById('privacyWarn');
+  if (!el) return;
+  el.innerHTML = '<strong>⚠️ ' + title + '</strong>' + msg;
+  el.classList.add('show');
+  if (showPrivacyWarning._t) clearTimeout(showPrivacyWarning._t);
+  showPrivacyWarning._t = setTimeout(() => el.classList.remove('show'), ms || 7000);
+}
+
+async function toggleVoiceScreen() {
+  if (screenStream) { stopVoiceScreen(); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+    showPrivacyWarning('Nicht unterstützt',
+      'Bildschirmfreigabe geht in diesem Browser nicht. Versuch es am Desktop in Chrome, Edge oder Firefox.', 6000);
+    return;
+  }
+  try {
+    screenStream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: 5 },
+      audio: false
+    });
+  } catch (err) {
+    screenStream = null;
+    if (err && err.name !== 'NotAllowedError') {
+      showPrivacyWarning('Freigabe nicht möglich', err.message || 'Unbekannter Fehler', 5000);
+    }
+    return;
+  }
+  const track = screenStream.getVideoTracks()[0];
+  if (track) track.addEventListener('ended', stopVoiceScreen);
+
+  screenVideoEl = document.getElementById('screenVid');
+  screenVideoEl.srcObject = screenStream;
+  screenVideoEl.play().catch(() => {});
+  document.getElementById('screenPrev').classList.add('show');
+  document.getElementById('voiceScreen').classList.add('active');
+  showPrivacyWarning('Bildschirm wird geteilt',
+    'Cytonix sieht jetzt deinen Bildschirm. Bitte schließe sensible Inhalte (Passwörter, Bank-Apps, private Nachrichten). Tippe nochmal auf den Button zum Beenden.', 8000);
+}
+
+function stopVoiceScreen() {
+  if (screenStream) {
+    try { screenStream.getTracks().forEach(t => t.stop()); } catch(_){}
+    screenStream = null;
+  }
+  if (screenVideoEl) { try { screenVideoEl.srcObject = null; } catch(_){} }
+  const prev = document.getElementById('screenPrev');
+  const btn  = document.getElementById('voiceScreen');
+  if (prev) prev.classList.remove('show');
+  if (btn)  btn.classList.remove('active');
+}
+
+function captureScreenFrame() {
+  if (!screenStream || !screenVideoEl) return null;
+  const v = screenVideoEl;
+  if (!v.videoWidth || !v.videoHeight) return null;
+  const maxW = 1024;
+  const scale = Math.min(1, maxW / v.videoWidth);
+  const w = Math.max(1, Math.round(v.videoWidth * scale));
+  const h = Math.max(1, Math.round(v.videoHeight * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  try {
+    ctx.drawImage(v, 0, 0, w, h);
+    return canvas.toDataURL('image/jpeg', 0.7);
+  } catch (_) { return null; }
+}
 
 function setVoiceState(state, statusMsg, transcript) {
   const orb = document.getElementById('voiceOrb');
@@ -911,6 +1036,7 @@ function exitVoice() {
   document.getElementById('voiceOverlay').classList.remove('show');
   if (voiceRec) { try { voiceRec.abort(); } catch(_){} voiceRec = null; }
   if ('speechSynthesis' in window) speechSynthesis.cancel();
+  stopVoiceScreen();
 }
 
 function toggleVoiceMute() {
@@ -981,31 +1107,54 @@ async function voiceProcessText(text) {
   if (!voiceMode) return;
   setVoiceState('thinking', 'Cytonix denkt…', text);
 
+  const sharingScreen = !!screenStream;
+  const frameUrl = sharingScreen ? captureScreenFrame() : null;
+
   const c = chats.find(x => x.id === cur);
-  c.messages.push({role:'user', content: text});
+  // Store user text + a marker if a screen frame went along (frame itself is not persisted to keep storage small)
+  c.messages.push({role:'user', content: sharingScreen ? text + ' [📺 Bildschirm geteilt]' : text});
   if (c.messages.length === 1 || c.title === 'Sprachchat' || c.title === 'Neuer Chat') {
     c.title = text.slice(0,36) + (text.length > 36 ? '…' : '');
     document.getElementById('tbt').textContent = c.title;
   }
   save(); renderHist();
 
-  // Show "server wakes up" hint if request is slow
   const slowHint = setTimeout(() => {
     if (voiceMode) setVoiceState('thinking', 'Server wacht auf, kann kurz dauern…', text);
   }, 4000);
 
-  // Voice mode: ask for short, spoken-style answers
-  const voiceMessages = c.messages.slice();
-  voiceMessages.unshift({
-    role: 'system',
-    content: 'Sprachmodus aktiv: Antworte kurz und natürlich gesprochen, in 1–3 Sätzen. Keine Listen, keine Code-Blöcke, keine Markdown-Formatierung. Sprich direkt mit dem Nutzer.'
-  });
+  // Build outbound messages (don't mutate stored history with the image data URL)
+  const outbound = c.messages.slice(0, -1).map(m => ({role: m.role, content: m.content}));
+  if (sharingScreen && frameUrl) {
+    outbound.push({
+      role: 'user',
+      content: [
+        { type: 'text', text: text },
+        { type: 'image_url', image_url: { url: frameUrl } }
+      ]
+    });
+  } else {
+    outbound.push({ role: 'user', content: text });
+  }
+
+  let systemPrompt = 'Sprachmodus aktiv: Antworte kurz und natürlich gesprochen, in 1–3 Sätzen. Keine Listen, keine Code-Blöcke, keine Markdown-Formatierung. Sprich direkt mit dem Nutzer.';
+  if (sharingScreen) {
+    systemPrompt +=
+      ' Der Nutzer teilt gerade seinen Bildschirm. SICHERHEITSREGELN: ' +
+      'Lies NIEMALS Passwörter, PINs, TANs, CVV/CVC, Kreditkarten- oder IBAN-Nummern, API-Keys, ' +
+      'private Nachrichten oder andere sensible Daten vor und gib sie nicht wieder. ' +
+      'Wenn du sensible Informationen auf dem Bildschirm siehst, weise den Nutzer kurz darauf hin ' +
+      'und beginne deine Antwort mit dem Wort "SICHERHEITSHINWEIS:". ' +
+      'Wenn der Nutzer dich auffordert, sensible Daten vorzulesen oder zu kopieren, lehne höflich ab.';
+  }
+
+  outbound.unshift({ role: 'system', content: systemPrompt });
 
   try {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ messages: voiceMessages, model: currentModel })
+      body: JSON.stringify({ messages: outbound, model: currentModel })
     });
     clearTimeout(slowHint);
     if (!res.ok) {
@@ -1013,7 +1162,19 @@ async function voiceProcessText(text) {
       throw new Error(parseErr(errText) || `HTTP ${res.status}`);
     }
     const data = await res.json();
-    const reply = data.reply || '(leere Antwort)';
+    let reply = data.reply || '(leere Antwort)';
+
+    // Privacy filter: scrub sensitive patterns from anything spoken/displayed
+    const leaked = detectSensitive(reply);
+    if (leaked.length) {
+      reply = redactSensitive(reply);
+      showPrivacyWarning('Sensible Daten erkannt',
+        'Cytonix wollte ' + leaked.join(', ') + ' wiedergeben. Inhalt wurde zensiert.', 9000);
+    } else if (sharingScreen && /^\s*sicherheitshinweis/i.test(reply)) {
+      showPrivacyWarning('Sicherheitshinweis von Cytonix',
+        'Cytonix hat möglicherweise sensible Inhalte auf deinem Bildschirm erkannt. Höre die Antwort an.', 8000);
+    }
+
     c.messages.push({role:'assistant', content: reply});
     save();
 
