@@ -117,6 +117,15 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 .inp-area{padding:14px max(24px,calc(50% - 380px)) 20px;flex-shrink:0}
 .inp-tools{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
 
+.attach-prev{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.attach-prev:empty{display:none}
+.att-chip{background:var(--s2);border:1px solid var(--b1);border-radius:10px;padding:5px 6px 5px 6px;display:inline-flex;align-items:center;gap:8px;font-size:.75rem;color:var(--t1);max-width:100%}
+.att-chip img{width:34px;height:34px;border-radius:6px;object-fit:cover;flex-shrink:0}
+.att-chip .att-icon{width:34px;height:34px;border-radius:6px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0}
+.att-chip .att-name{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att-chip .att-x{background:none;border:none;color:var(--mu);cursor:pointer;padding:0 6px;font-size:.85rem;line-height:1}
+.att-chip .att-x:hover{color:var(--re)}
+
 .voice-overlay{position:fixed;inset:0;z-index:200;background:radial-gradient(ellipse at center,#1a1530 0%,#0a0a14 75%);display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center}
 .voice-overlay.show{display:flex;animation:vFade .25s ease}
 @keyframes vFade{from{opacity:0}to{opacity:1}}
@@ -233,6 +242,10 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 
     <div class="inp-area">
       <div class="inp-tools">
+        <button class="tool-btn" onclick="document.getElementById('fileInput').click()" type="button" title="Datei oder Bild anhängen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          Anhang
+        </button>
         <button class="tool-btn" onclick="enterVoice()" type="button" title="Sprachmodus – mit Cytonix sprechen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
           Sprechen
@@ -246,6 +259,8 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
           Video
         </button>
       </div>
+      <input type="file" id="fileInput" accept="image/*,text/*,.txt,.md,.json,.csv,.py,.js,.ts,.html,.css,.yml,.yaml,.sh,.log,.xml" style="display:none" onchange="handleFileSelect(event)"/>
+      <div class="attach-prev" id="attachPrev"></div>
       <div class="inp-shell">
         <textarea id="ui" placeholder="Frag Cytonix etwas…" rows="1"></textarea>
         <button id="mic" class="mic-btn" onclick="toggleMic()" title="Sprechen">
@@ -520,21 +535,27 @@ function retry(){ document.getElementById('ui').value=lastTxt; doSend(); }
 async function doSend() {
   const inp = document.getElementById('ui');
   const text = inp.value.trim();
-  if (!text||busy) return;
+  const hasAttach = !!(pendingImage || pendingText);
+  if ((!text && !hasAttach) || busy) return;
   lastTxt = text;
   inp.value=''; inp.style.height='auto';
 
+  // What we display & save in history (images aren't persisted as data URLs to keep storage small)
+  let displayText = text;
+  if (pendingImage) displayText = (text || 'Was siehst du auf diesem Bild?') + ` 🖼️ ${pendingImage.name}`;
+  else if (pendingText) displayText = (text || 'Analysiere diese Datei') + ` 📄 ${pendingText.name}`;
+
   if (!cur) {
     const id=Date.now().toString();
-    const title = text.slice(0,36)+(text.length>36?'…':'');
+    const title = displayText.slice(0,36)+(displayText.length>36?'…':'');
     chats.unshift({id, title, messages:[]});
     cur = id;
     document.getElementById('tbt').textContent = title;
   }
   const c = chats.find(x=>x.id===cur);
-  c.messages.push({role:'user', content:text});
+  c.messages.push({role:'user', content: displayText});
   if (c.messages.length === 1) {
-    c.title = text.slice(0,36)+(text.length>36?'…':'');
+    c.title = displayText.slice(0,36)+(displayText.length>36?'…':'');
     document.getElementById('tbt').textContent = c.title;
   }
   save(); renderHist();
@@ -542,13 +563,16 @@ async function doSend() {
   const inn = mkInner();
   if (document.getElementById('wlc')) document.getElementById('msgs').innerHTML='', inn.remove?.(), mkInner();
   const inn2 = mkInner();
-  addUser(inn2, text);
+  addUser(inn2, displayText);
   addTyping(inn2);
 
   busy = true;
   document.getElementById('sb').disabled = true;
 
-  if (wantsImage(text) || forceImageNext) {
+  // If user has an attachment, skip image generation and go straight to API
+  const hasAttachment = !!(pendingImage || pendingText);
+
+  if (!hasAttachment && (wantsImage(text) || forceImageNext)) {
     forceImageNext = false;
     const prompt = imagePromptFrom(text);
     const imageUrl = pollinationsURL(prompt);
@@ -563,11 +587,36 @@ async function doSend() {
     return;
   }
 
+  // Build API messages — replace last user message with multimodal version if needed
+  let apiMessages = c.messages.slice();
+  if (pendingImage) {
+    apiMessages[apiMessages.length - 1] = {
+      role: 'user',
+      content: [
+        { type: 'text', text: text || 'Was siehst du auf diesem Bild?' },
+        { type: 'image_url', image_url: { url: pendingImage.dataUrl } }
+      ]
+    };
+  } else if (pendingText) {
+    const trimmed = pendingText.content.length > 80000
+      ? pendingText.content.slice(0, 80000) + '\n\n[Datei gekürzt – zu lang]'
+      : pendingText.content;
+    apiMessages[apiMessages.length - 1] = {
+      role: 'user',
+      content: `Hier ist eine Datei "${pendingText.name}":\n\n\`\`\`\n${trimmed}\n\`\`\`\n\n${text || 'Bitte analysiere oder fasse zusammen.'}`
+    };
+  }
+
+  // Clear attachment state for next message (do this before fetch so retries don't double-send)
+  const sentImage = pendingImage;
+  const sentText = pendingText;
+  pendingImage = null; pendingText = null; renderAttachments();
+
   try {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ messages: c.messages, model: currentModel })
+      body: JSON.stringify({ messages: apiMessages, model: currentModel })
     });
     if (!res.ok) {
       const errText = await res.text();
@@ -648,6 +697,78 @@ function selectModel(id) {
 document.addEventListener('click', () => {
   document.getElementById('modelMenu').classList.remove('show');
 });
+
+// FILE ATTACHMENTS
+let pendingImage = null;  // {dataUrl, name, size}
+let pendingText  = null;  // {content, name, size}
+
+const TEXT_FILE_RE = /\.(txt|md|json|csv|py|js|ts|tsx|jsx|html|htm|css|yml|yaml|sh|log|xml|ini|toml|sql)$/i;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_TEXT_BYTES  = 200 * 1024;
+
+function readAsDataURL(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+function readAsText(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsText(file);
+  });
+}
+async function handleFileSelect(e) {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const isImage = file.type.startsWith('image/');
+  const isText  = file.type.startsWith('text/') || TEXT_FILE_RE.test(file.name);
+  if (isImage) {
+    if (file.size > MAX_IMAGE_BYTES) {
+      alert('Bild zu groß (max 4 MB).'); return;
+    }
+    const dataUrl = await readAsDataURL(file);
+    pendingImage = { dataUrl, name: file.name, size: file.size };
+    pendingText = null;
+  } else if (isText) {
+    if (file.size > MAX_TEXT_BYTES) {
+      alert('Datei zu groß (max 200 KB Text).'); return;
+    }
+    const content = await readAsText(file);
+    pendingText = { content, name: file.name, size: file.size };
+    pendingImage = null;
+  } else {
+    alert('Dateityp nicht unterstützt. Erlaubt: Bilder oder Text-/Code-Dateien.');
+    return;
+  }
+  renderAttachments();
+}
+function renderAttachments() {
+  const c = document.getElementById('attachPrev');
+  c.innerHTML = '';
+  if (pendingImage) {
+    const chip = document.createElement('div');
+    chip.className = 'att-chip';
+    chip.innerHTML = `<img src="${pendingImage.dataUrl}" alt=""/><span class="att-name">${esc(pendingImage.name)}</span><button class="att-x" onclick="removeAttachment('image')" title="Entfernen">✕</button>`;
+    c.appendChild(chip);
+  }
+  if (pendingText) {
+    const chip = document.createElement('div');
+    chip.className = 'att-chip';
+    chip.innerHTML = `<span class="att-icon">📄</span><span class="att-name">${esc(pendingText.name)}</span><button class="att-x" onclick="removeAttachment('text')" title="Entfernen">✕</button>`;
+    c.appendChild(chip);
+  }
+}
+function removeAttachment(kind) {
+  if (kind === 'image') pendingImage = null;
+  if (kind === 'text')  pendingText  = null;
+  renderAttachments();
+}
 
 // IMAGE GENERATION
 let forceImageNext = false;

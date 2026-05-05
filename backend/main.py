@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -23,6 +23,7 @@ PROVIDER = os.getenv("CYTONIX_PROVIDER", "groq").lower()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "llama-3.2-90b-vision-preview")
 
 CYTONIX_MODELS = {
     "cytonix-1.1": {
@@ -56,7 +57,7 @@ SYSTEM_PROMPT = (
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-app = FastAPI(title="Cytonix API", version="0.3.0")
+app = FastAPI(title="Cytonix API", version="0.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,7 +69,7 @@ app.add_middleware(
 
 class Message(BaseModel):
     role: Literal["user", "assistant", "system"]
-    content: str
+    content: Any  # plain string OR list of multimodal content parts
 
 
 class ChatRequest(BaseModel):
@@ -82,8 +83,18 @@ class ChatResponse(BaseModel):
     provider: str
 
 
-def _resolve_model(requested: Optional[str]) -> tuple[str, str]:
-    """Return (cytonix_label, groq_model_id) for the requested model."""
+def _has_image(messages: List[Message]) -> bool:
+    for m in messages:
+        if isinstance(m.content, list):
+            for part in m.content:
+                if isinstance(part, dict) and part.get("type") == "image_url":
+                    return True
+    return False
+
+
+def _resolve_model(requested: Optional[str], use_vision: bool) -> tuple[str, str]:
+    if use_vision:
+        return "cytonix-vision", GROQ_VISION_MODEL
     key = (requested or DEFAULT_CYTONIX_MODEL).lower()
     if key in CYTONIX_MODELS:
         return key, CYTONIX_MODELS[key]["groq_id"]
@@ -107,13 +118,8 @@ async def models():
 async def health():
     if PROVIDER == "groq":
         if not GROQ_API_KEY:
-            return {
-                "ok": False,
-                "provider": "groq",
-                "error": "GROQ_API_KEY ist nicht gesetzt.",
-            }
+            return {"ok": False, "provider": "groq", "error": "GROQ_API_KEY ist nicht gesetzt."}
         return {"ok": True, "provider": "groq", "default_model": DEFAULT_CYTONIX_MODEL}
-
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             r = await client.get(f"{OLLAMA_URL}/api/tags")
@@ -124,29 +130,21 @@ async def health():
 
 
 def _strip_thinking(text: str) -> str:
-    """Remove <think>...</think> blocks emitted by reasoning models."""
     return re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE).strip()
 
 
 async def _chat_groq(messages: list[dict], groq_model: str) -> str:
     if not GROQ_API_KEY:
-        raise HTTPException(
-            status_code=503,
-            detail="GROQ_API_KEY fehlt. Setze ihn als Umgebungsvariable.",
-        )
+        raise HTTPException(status_code=503, detail="GROQ_API_KEY fehlt. Setze ihn als Umgebungsvariable.")
     try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             r = await client.post(
                 GROQ_URL,
                 headers={
                     "Authorization": f"Bearer {GROQ_API_KEY}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": groq_model,
-                    "messages": messages,
-                    "stream": False,
-                },
+                json={"model": groq_model, "messages": messages, "stream": False},
             )
             if r.status_code == 401:
                 raise HTTPException(status_code=401, detail="Groq-API-Key ungültig.")
@@ -159,7 +157,7 @@ async def _chat_groq(messages: list[dict], groq_model: str) -> str:
     except HTTPException:
         raise
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=502, detail=f"Groq-Fehler: {e.response.text[:200]}")
+        raise HTTPException(status_code=502, detail=f"Groq-Fehler: {e.response.text[:300]}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Backend-Fehler: {e}")
     try:
@@ -184,10 +182,7 @@ async def _chat_ollama(messages: list[dict]) -> str:
             r.raise_for_status()
             data = r.json()
     except httpx.ConnectError:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Ollama läuft nicht unter {OLLAMA_URL}.",
-        )
+        raise HTTPException(status_code=503, detail=f"Ollama läuft nicht unter {OLLAMA_URL}.")
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Ollama hat zu lange gebraucht.")
     except HTTPException:
@@ -199,7 +194,8 @@ async def _chat_ollama(messages: list[dict]) -> str:
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
-    cytonix_id, groq_model = _resolve_model(req.model)
+    use_vision = _has_image(req.messages)
+    cytonix_id, groq_model = _resolve_model(req.model, use_vision)
 
     payload = [{"role": "system", "content": SYSTEM_PROMPT}]
     for m in req.messages:
@@ -209,13 +205,17 @@ async def chat(req: ChatRequest):
         reply = await _chat_groq(payload, groq_model)
         active_model = cytonix_id
     elif PROVIDER == "ollama":
-        reply = await _chat_ollama(payload)
+        flattened = []
+        for msg in payload:
+            c = msg["content"]
+            if isinstance(c, list):
+                texts = [p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text"]
+                msg = {**msg, "content": "\n".join(texts) or "(Bild-Anhang ignoriert im Ollama-Modus)"}
+            flattened.append(msg)
+        reply = await _chat_ollama(flattened)
         active_model = OLLAMA_MODEL
     else:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unbekannter CYTONIX_PROVIDER: '{PROVIDER}'",
-        )
+        raise HTTPException(status_code=500, detail=f"Unbekannter CYTONIX_PROVIDER: '{PROVIDER}'")
 
     if not reply:
         raise HTTPException(status_code=502, detail="Leere Antwort vom Modell.")
