@@ -91,7 +91,8 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 @keyframes mIn{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
 .ava{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--ac),#a78bfa);display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700;color:#fff;flex-shrink:0;margin-top:2px}
 .ai-c{flex:1;min-width:0}
-.ai-lbl{font-size:.67rem;font-weight:600;color:var(--ac);letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}
+.ai-lbl{font-size:.67rem;font-weight:600;color:var(--ac);letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.routed-badge{font-size:.6rem;font-weight:500;color:var(--t2);background:rgba(124,109,250,.1);border:1px solid rgba(124,109,250,.25);padding:1px 7px;border-radius:10px;letter-spacing:0;text-transform:none}
 .ab{font-size:.875rem;line-height:1.75;color:var(--t1)}
 
 .err-wrap{background:rgba(255,107,107,.07);border:1px solid rgba(255,107,107,.2);border-radius:12px;padding:14px 17px;font-size:.82rem;line-height:1.65;color:#ffb3b3;display:flex;align-items:flex-start;gap:10px}
@@ -265,6 +266,10 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
     </div>
 
     <div id="modelMenu" class="model-menu" onclick="event.stopPropagation()">
+      <div class="mm-item" data-model="cytonix-auto" onclick="selectModel('cytonix-auto')">
+        <div class="mm-name">Cytonix Auto <span class="mm-tag">✨ Multi-Agent</span></div>
+        <div class="mm-desc">Wählt selbst den besten Spezialisten für jede Frage</div>
+      </div>
       <div class="mm-item" data-model="cytonix-1.1" onclick="selectModel('cytonix-1.1')">
         <div class="mm-name">Cytonix 1.1 <span class="mm-tag">⚡ Schnell</span></div>
         <div class="mm-desc">Sehr schnelle Antworten – ideal für kurze Fragen</div>
@@ -354,12 +359,14 @@ let cur          = null;
 let busy         = false;
 let lastTxt      = '';
 let sbOpen       = window.innerWidth > 640;
-let currentModel = localStorage.getItem('cytonix_model') || 'cytonix-1.3';
+let currentModel = localStorage.getItem('cytonix_model') || 'cytonix-auto';
 
 const MODEL_LABELS = {
+  'cytonix-auto': 'Cytonix Auto',
   'cytonix-1.1': 'Cytonix 1.1',
   'cytonix-1.2': 'Cytonix 1.2',
-  'cytonix-1.3': 'Cytonix 1.3'
+  'cytonix-1.3': 'Cytonix 1.3',
+  'cytonix-vision': 'Cytonix Vision'
 };
 
 if (!sbOpen) document.getElementById('panel').classList.add('gone');
@@ -395,7 +402,7 @@ function openChat(id) {
     const inn = mkInner();
     c.messages.forEach(m => {
       if (m.role==='user') addUser(inn, m.content);
-      else addAI(inn, m.content, m.image);
+      else addAI(inn, m.content, m.image, m.routed_to);
     });
   }
   renderHist();
@@ -449,7 +456,7 @@ function addUser(inn, text) {
   el.innerHTML=`<div class="ub">${esc(text).replace(/\n/g,'<br/>')}</div>`;
   inn.appendChild(el); scrollBot();
 }
-function addAI(inn, text, imgUrl) {
+function addAI(inn, text, imgUrl, routedTo) {
   const el=document.createElement('div'); el.className='ma-row';
   const ttsAttr = escAttr(text);
   const uid = 'img-'+Date.now()+'-'+Math.floor(Math.random()*1e6);
@@ -461,7 +468,8 @@ function addAI(inn, text, imgUrl) {
               onerror="document.getElementById('ld-${uid}').innerHTML='⚠️ Bild konnte nicht geladen werden.'"/>
        </div>`
     : '';
-  el.innerHTML=`<div class="ava">CY</div><div class="ai-c"><div class="ai-lbl">Cytonix</div><div class="ab">${md(text)}</div>${imgHtml}<button class="speak-btn" onclick="speakMsg(this)" data-tts="${ttsAttr}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg><span>Vorlesen</span></button></div>`;
+  const routedBadge = routedTo ? ` <span class="routed-badge" title="Multi-Agent-Routing">→ ${esc(MODEL_LABELS[routedTo] || routedTo)}</span>` : '';
+  el.innerHTML=`<div class="ava">CY</div><div class="ai-c"><div class="ai-lbl">Cytonix${routedBadge}</div><div class="ab">${md(text)}</div>${imgHtml}<button class="speak-btn" onclick="speakMsg(this)" data-tts="${ttsAttr}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg><span>Vorlesen</span></button></div>`;
   inn.appendChild(el); scrollBot();
   return el.querySelector('.ab');
 }
@@ -681,8 +689,8 @@ async function doSend() {
     const data = await res.json();
     const reply = data.reply || '(leere Antwort)';
     rmTyping();
-    addAI(inn2, reply);
-    c.messages.push({role:'assistant', content:reply});
+    addAI(inn2, reply, undefined, data.routed_to);
+    c.messages.push({role:'assistant', content:reply, routed_to:data.routed_to});
     save();
   } catch (err) {
     rmTyping();
@@ -1147,6 +1155,12 @@ async function voiceProcessText(text) {
     }
     const data = await res.json();
     let reply = data.reply || '(leere Antwort)';
+
+    // Show routed specialist in voice overlay when Auto mode is on
+    if (data.routed_to && MODEL_LABELS[data.routed_to]) {
+      document.getElementById('voiceModelLbl').textContent =
+        (MODEL_LABELS[currentModel] || 'Cytonix') + ' → ' + MODEL_LABELS[data.routed_to];
+    }
 
     // Privacy filter: scrub sensitive patterns from anything spoken/displayed
     const leaked = detectSensitive(reply);

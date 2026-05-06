@@ -41,9 +41,25 @@ CYTONIX_MODELS = {
         "label": "Cytonix 1.3",
         "description": "Leistungsstark – komplexe Probleme",
     },
+    "cytonix-auto": {
+        "groq_id": "",
+        "label": "Cytonix Auto",
+        "description": "Multi-Agent: wählt selbst den besten Spezialisten",
+    },
 }
-DEFAULT_CYTONIX_MODEL = os.getenv("CYTONIX_DEFAULT_MODEL", "cytonix-1.3")
+DEFAULT_CYTONIX_MODEL = os.getenv("CYTONIX_DEFAULT_MODEL", "cytonix-auto")
 GROQ_MODEL_FALLBACK = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+ROUTER_GROQ_ID = "llama-3.1-8b-instant"
+
+ROUTER_SYSTEM = (
+    "Du bist ein Routing-Agent. Schaue auf die letzte Nachricht des Nutzers "
+    "und wähle den besten Spezialisten. Antworte AUSSCHLIESSLICH mit einem "
+    "dieser vier Codes — kein anderes Wort, kein Satz, keine Erklärung:\n"
+    "1.1  → Smalltalk, einfache Fragen, kurze Faktenfragen, Begrüßungen\n"
+    "1.2  → Mathe, Logik, schrittweises Denken, Reasoning, Rätsel\n"
+    "1.3  → Code schreiben/erklären, lange Texte, komplexe Erklärungen, Kreatives\n"
+    "Antworte NUR mit '1.1', '1.2' oder '1.3'."
+)
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
@@ -81,6 +97,7 @@ class ChatResponse(BaseModel):
     reply: str
     model: str
     provider: str
+    routed_to: Optional[str] = None  # set when Auto mode picked a specialist
 
 
 def _has_image(messages: List[Message]) -> bool:
@@ -96,11 +113,58 @@ def _resolve_model(requested: Optional[str], use_vision: bool) -> tuple[str, str
     if use_vision:
         return "cytonix-vision", GROQ_VISION_MODEL
     key = (requested or DEFAULT_CYTONIX_MODEL).lower()
-    if key in CYTONIX_MODELS:
+    if key in CYTONIX_MODELS and CYTONIX_MODELS[key]["groq_id"]:
         return key, CYTONIX_MODELS[key]["groq_id"]
-    return DEFAULT_CYTONIX_MODEL, CYTONIX_MODELS.get(
-        DEFAULT_CYTONIX_MODEL, {"groq_id": GROQ_MODEL_FALLBACK}
-    )["groq_id"]
+    fallback = "cytonix-1.3" if DEFAULT_CYTONIX_MODEL == "cytonix-auto" else DEFAULT_CYTONIX_MODEL
+    return fallback, CYTONIX_MODELS.get(fallback, {"groq_id": GROQ_MODEL_FALLBACK})["groq_id"]
+
+
+def _last_user_text(messages: List["Message"]) -> str:
+    """Extract the most recent user text for the router agent."""
+    for m in reversed(messages):
+        if m.role != "user":
+            continue
+        if isinstance(m.content, str):
+            return m.content
+        if isinstance(m.content, list):
+            parts = [p.get("text", "") for p in m.content if isinstance(p, dict) and p.get("type") == "text"]
+            return "\n".join(t for t in parts if t)
+    return ""
+
+
+async def _route_with_agent(user_text: str) -> str:
+    """Ask a fast small model which specialist to use. Returns a cytonix model id."""
+    if not user_text or not GROQ_API_KEY:
+        return "cytonix-1.3"
+    snippet = user_text[:600]
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.post(
+                GROQ_URL,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": ROUTER_GROQ_ID,
+                    "messages": [
+                        {"role": "system", "content": ROUTER_SYSTEM},
+                        {"role": "user", "content": snippet},
+                    ],
+                    "stream": False,
+                    "max_tokens": 8,
+                    "temperature": 0,
+                },
+            )
+            r.raise_for_status()
+            choice = r.json()["choices"][0]["message"]["content"].strip().lower()
+    except Exception:
+        return "cytonix-1.3"
+    if "1.1" in choice:
+        return "cytonix-1.1"
+    if "1.2" in choice:
+        return "cytonix-1.2"
+    return "cytonix-1.3"
 
 
 @app.get("/api/models")
@@ -195,7 +259,16 @@ async def _chat_ollama(messages: list[dict]) -> str:
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     use_vision = _has_image(req.messages)
-    cytonix_id, groq_model = _resolve_model(req.model, use_vision)
+
+    # Auto mode: a small router agent picks the best specialist before answering.
+    requested = (req.model or "").lower()
+    routed_to: Optional[str] = None
+    effective_model = req.model
+    if requested == "cytonix-auto" and not use_vision and PROVIDER == "groq":
+        routed_to = await _route_with_agent(_last_user_text(req.messages))
+        effective_model = routed_to
+
+    cytonix_id, groq_model = _resolve_model(effective_model, use_vision)
 
     payload = [{"role": "system", "content": SYSTEM_PROMPT}]
     for m in req.messages:
@@ -219,7 +292,7 @@ async def chat(req: ChatRequest):
 
     if not reply:
         raise HTTPException(status_code=502, detail="Leere Antwort vom Modell.")
-    return ChatResponse(reply=reply, model=active_model, provider=PROVIDER)
+    return ChatResponse(reply=reply, model=active_model, provider=PROVIDER, routed_to=routed_to)
 
 
 if (PROJECT_ROOT / "index.html").exists():
