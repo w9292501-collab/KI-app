@@ -607,11 +607,39 @@ if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => {};
 async function qs(t){ document.getElementById('ui').value=t; await doSend(); }
 function retry(){ document.getElementById('ui').value=lastTxt; doSend(); }
 
+const CLIENT_BLOCK_PATTERNS = [
+  /\b(hack\s*mod|cheat\s*men[uü]|exploit|aimbot|wallhack|esp\s*hack|speed\s*hack|infinite\s*(coins?|robux|gems?|gold|money|lives?|health)|unlimited\s*(robux|coins?|gems?)|roblox\s*hack|minecraft\s*cheat|trainer\s*hack|mod\s*men[uü]\s*hack)\b/i,
+  /\b(virus\s*schreib|trojaner|ransomware|keylogger|malware\s*code|ddos\s*(tool|angriff|script)|botnet)\b/i,
+  /\b(fremde[sn]?\s*(account|passwort|konto)\s*(hack|knack|stehlen))\b/i,
+];
+
+function isSafetyBlock(text) {
+  return CLIENT_BLOCK_PATTERNS.some(p => p.test(text));
+}
+
+function showSafetyBanner(msg) {
+  let el = document.getElementById('safetyBanner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'safetyBanner';
+    el.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:999;background:rgba(255,107,107,.97);color:#fff;padding:10px 18px;border-radius:12px;font-size:.82rem;max-width:90vw;box-shadow:0 4px 20px rgba(0,0,0,.4);line-height:1.5;text-align:center';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(isSafetyBlock._t);
+  isSafetyBlock._t = setTimeout(() => { el.style.display='none'; }, 6000);
+}
+
 async function doSend() {
   const inp = document.getElementById('ui');
   const text = inp.value.trim();
   const hasAttach = !!(pendingImage || pendingText);
   if ((!text && !hasAttach) || busy) return;
+  if (isSafetyBlock(text)) {
+    showSafetyBanner('⛔ Das geht nicht. Cytonix hilft nicht bei Hacks, Cheats oder Schadcode.');
+    return;
+  }
   lastTxt = text;
   inp.value=''; inp.style.height='auto';
 
