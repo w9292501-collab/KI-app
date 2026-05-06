@@ -172,9 +172,11 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 .voice-screen.active::after{content:'';position:absolute;top:-2px;right:-2px;width:11px;height:11px;border-radius:50%;background:var(--re);border:2px solid #0a0a14;animation:pls 1.5s ease infinite}
 .screen-prev{position:absolute;top:18px;left:18px;width:160px;border-radius:10px;border:1px solid var(--b1);overflow:hidden;background:#000;display:none;box-shadow:0 4px 20px rgba(0,0,0,.6);z-index:3}
 .screen-prev.show{display:block}
-.screen-prev video{width:100%;height:auto;display:block;background:#000;max-height:120px;object-fit:cover}
+.screen-prev img{width:100%;height:auto;display:block;background:#000;max-height:120px;object-fit:cover}
 .screen-prev-lbl{font-size:.62rem;color:var(--t1);padding:5px 9px;background:rgba(0,0,0,.55);display:flex;align-items:center;gap:6px;letter-spacing:.03em}
-.screen-prev-lbl::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--re);animation:pls 1.2s ease infinite;flex-shrink:0}
+.screen-prev-lbl::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--gr);animation:pls 1.2s ease infinite;flex-shrink:0}
+.screen-prev-close{background:none;border:none;color:var(--t2);cursor:pointer;font-size:.85rem;margin-left:auto;line-height:1;padding:0 2px}
+.screen-prev-close:hover{color:var(--re)}
 .privacy-warn{position:absolute;top:18px;left:50%;transform:translateX(-50%);max-width:min(440px,calc(100% - 120px));background:linear-gradient(135deg,rgba(255,107,107,.96),rgba(220,38,38,.96));color:#fff;padding:11px 16px;border-radius:12px;font-size:.78rem;line-height:1.5;display:none;z-index:5;box-shadow:0 6px 24px rgba(0,0,0,.4);text-align:left}
 .privacy-warn.show{display:block;animation:mIn .25s ease}
 .privacy-warn strong{display:block;margin-bottom:3px;font-size:.82rem;font-weight:600}
@@ -320,9 +322,10 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 
 <div class="voice-overlay" id="voiceOverlay">
   <button class="voice-close" onclick="exitVoice()" title="Beenden">✕</button>
+  <input type="file" id="screenFileInput" accept="image/*" style="display:none">
   <div class="screen-prev" id="screenPrev">
-    <div class="screen-prev-lbl">Bildschirm geteilt</div>
-    <video id="screenVid" autoplay muted playsinline></video>
+    <div class="screen-prev-lbl">Bild angehängt<button class="screen-prev-close" onclick="stopVoiceScreen()" title="Entfernen">✕</button></div>
+    <img id="screenImg" src="" alt="Vorschau">
   </div>
   <div class="privacy-warn" id="privacyWarn"></div>
   <div class="voice-orb" id="voiceOrb"></div>
@@ -334,8 +337,8 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
       <button class="voice-mute" id="voiceMute" onclick="toggleVoiceMute()" title="Mikro stumm/aktiv">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
       </button>
-      <button class="voice-screen" id="voiceScreen" onclick="toggleVoiceScreen()" title="Bildschirm teilen">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      <button class="voice-screen" id="voiceScreen" onclick="toggleVoiceScreen()" title="Bild / Screenshot teilen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
       </button>
     </div>
   </div>
@@ -891,8 +894,7 @@ let voiceMuted   = false;
 let voiceRec     = null;
 let voiceFinal   = '';
 let voiceRetry   = 0;
-let screenStream = null;
-let screenVideoEl = null;
+let sharedImageUrl = null;
 
 // Privacy filter — patterns that should never be read aloud or echoed
 const SENSITIVE_PATTERNS = [
@@ -933,43 +935,36 @@ function showPrivacyWarning(title, msg, ms) {
   showPrivacyWarning._t = setTimeout(() => el.classList.remove('show'), ms || 7000);
 }
 
-async function toggleVoiceScreen() {
-  if (screenStream) { stopVoiceScreen(); return; }
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-    showPrivacyWarning('Nicht unterstützt',
-      'Bildschirmfreigabe geht in diesem Browser nicht. Versuch es am Desktop in Chrome, Edge oder Firefox.', 6000);
-    return;
-  }
-  try {
-    screenStream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: 5 },
-      audio: false
-    });
-  } catch (err) {
-    screenStream = null;
-    if (err && err.name !== 'NotAllowedError') {
-      showPrivacyWarning('Freigabe nicht möglich', err.message || 'Unbekannter Fehler', 5000);
-    }
-    return;
-  }
-  const track = screenStream.getVideoTracks()[0];
-  if (track) track.addEventListener('ended', stopVoiceScreen);
-
-  screenVideoEl = document.getElementById('screenVid');
-  screenVideoEl.srcObject = screenStream;
-  screenVideoEl.play().catch(() => {});
-  document.getElementById('screenPrev').classList.add('show');
-  document.getElementById('voiceScreen').classList.add('active');
-  showPrivacyWarning('Bildschirm wird geteilt',
-    'Cytonix sieht jetzt deinen Bildschirm. Bitte schließe sensible Inhalte (Passwörter, Bank-Apps, private Nachrichten). Tippe nochmal auf den Button zum Beenden.', 8000);
+function toggleVoiceScreen() {
+  if (sharedImageUrl) { stopVoiceScreen(); return; }
+  const inp = document.getElementById('screenFileInput');
+  inp.value = '';
+  inp.click();
 }
 
+document.addEventListener('DOMContentLoaded', () => {
+  const inp = document.getElementById('screenFileInput');
+  if (inp) inp.addEventListener('change', () => {
+    const file = inp.files && inp.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      sharedImageUrl = e.target.result;
+      const img = document.getElementById('screenImg');
+      if (img) img.src = sharedImageUrl;
+      document.getElementById('screenPrev').classList.add('show');
+      document.getElementById('voiceScreen').classList.add('active');
+      showPrivacyWarning('Bild angehängt',
+        'Das Bild wird mit deiner nächsten Spracheingabe an Cytonix gesendet. Schließe sensible Inhalte, bevor Du fragst.', 6000);
+    };
+    reader.readAsDataURL(file);
+  });
+});
+
 function stopVoiceScreen() {
-  if (screenStream) {
-    try { screenStream.getTracks().forEach(t => t.stop()); } catch(_){}
-    screenStream = null;
-  }
-  if (screenVideoEl) { try { screenVideoEl.srcObject = null; } catch(_){} }
+  sharedImageUrl = null;
+  const img = document.getElementById('screenImg');
+  if (img) img.src = '';
   const prev = document.getElementById('screenPrev');
   const btn  = document.getElementById('voiceScreen');
   if (prev) prev.classList.remove('show');
@@ -977,20 +972,7 @@ function stopVoiceScreen() {
 }
 
 function captureScreenFrame() {
-  if (!screenStream || !screenVideoEl) return null;
-  const v = screenVideoEl;
-  if (!v.videoWidth || !v.videoHeight) return null;
-  const maxW = 1024;
-  const scale = Math.min(1, maxW / v.videoWidth);
-  const w = Math.max(1, Math.round(v.videoWidth * scale));
-  const h = Math.max(1, Math.round(v.videoHeight * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  try {
-    ctx.drawImage(v, 0, 0, w, h);
-    return canvas.toDataURL('image/jpeg', 0.7);
-  } catch (_) { return null; }
+  return sharedImageUrl || null;
 }
 
 function setVoiceState(state, statusMsg, transcript) {
@@ -1107,8 +1089,10 @@ async function voiceProcessText(text) {
   if (!voiceMode) return;
   setVoiceState('thinking', 'Cytonix denkt…', text);
 
-  const sharingScreen = !!screenStream;
+  const sharingScreen = !!sharedImageUrl;
   const frameUrl = sharingScreen ? captureScreenFrame() : null;
+  // Image is consumed — clear it so the user has to re-attach for next question
+  if (sharingScreen) stopVoiceScreen();
 
   const c = chats.find(x => x.id === cur);
   // Store user text + a marker if a screen frame went along (frame itself is not persisted to keep storage small)
