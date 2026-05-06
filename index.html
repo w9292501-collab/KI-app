@@ -888,12 +888,30 @@ async function doSend() {
   const sentText = pendingText;
   pendingImage = null; pendingText = null; renderAttachments();
 
+  const abortCtrl = new AbortController();
+  const abortTimer = setTimeout(() => abortCtrl.abort(), 90000);
+  const wakeHint = setTimeout(() => {
+    const typr = document.getElementById('typr');
+    if (typr) {
+      const dots = typr.querySelector('.tyd');
+      if (dots && !typr.querySelector('.wake-hint')) {
+        const hint = document.createElement('div');
+        hint.className = 'wake-hint';
+        hint.style.cssText = 'font-size:.7rem;color:var(--t2);margin-top:7px;opacity:.8';
+        hint.textContent = '⏳ Server startet, bitte warte…';
+        dots.insertAdjacentElement('afterend', hint);
+      }
+    }
+  }, 5000);
+
   try {
     const res = await fetch(API_STREAM, {
+      signal: abortCtrl.signal,
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ messages: apiMessages, model: currentModel, tools: activeTools })
     });
+    clearTimeout(wakeHint); clearTimeout(abortTimer);
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(parseErr(errText) || `HTTP ${res.status}`);
@@ -1049,8 +1067,12 @@ async function doSend() {
     c.messages.push({role:'assistant', content: fullText, routed_to: routedTo});
     save();
   } catch (err) {
+    clearTimeout(wakeHint); clearTimeout(abortTimer);
     rmTyping();
-    addError(inn2, err.message || 'Verbindung zum Cytonix-Server fehlgeschlagen. Läuft das Backend?');
+    const errMsg = err.name === 'AbortError'
+      ? 'Zeitüberschreitung (90 s). Server antwortet nicht — warte kurz und versuche es erneut.'
+      : (err.message || 'Verbindung zum Cytonix-Server fehlgeschlagen. Läuft das Backend?');
+    addError(inn2, errMsg);
   } finally {
     busy = false;
     document.getElementById('sb').disabled = false;
@@ -1072,19 +1094,20 @@ function parseErr(raw) {
 async function checkHealth() {
   const chip = document.getElementById('status');
   const txt  = document.getElementById('statusTxt');
+  txt.textContent = 'Verbinde…';
   try {
-    const r = await fetch(HEALTH);
+    const r = await fetch(HEALTH, {signal: AbortSignal.timeout(15000)});
     const d = await r.json();
     if (d.ok) {
       chip.classList.remove('off');
       txt.textContent = d.model ? `Online · ${d.model}` : 'Online';
     } else {
       chip.classList.add('off');
-      txt.textContent = 'Offline';
+      txt.textContent = d.error || 'Offline';
     }
   } catch {
     chip.classList.add('off');
-    txt.textContent = 'Backend offline';
+    txt.textContent = 'Server startet… (bitte warten)';
   }
 }
 
@@ -1521,8 +1544,10 @@ async function voiceProcessText(text) {
   save(); renderHist();
 
   const slowHint = setTimeout(() => {
-    if (voiceMode) setVoiceState('thinking', 'Server wacht auf, kann kurz dauern…', text);
-  }, 4000);
+    if (voiceMode) setVoiceState('thinking', '⏳ Server startet, bitte warte…', text);
+  }, 3000);
+  const voiceAbort = new AbortController();
+  const voiceAbortTimer = setTimeout(() => voiceAbort.abort(), 90000);
 
   // Build outbound messages (don't mutate stored history with the image data URL)
   const outbound = c.messages.slice(0, -1).map(m => ({role: m.role, content: m.content}));
@@ -1553,11 +1578,12 @@ async function voiceProcessText(text) {
 
   try {
     const res = await fetch(API_URL, {
+      signal: voiceAbort.signal,
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ messages: outbound, model: currentModel })
     });
-    clearTimeout(slowHint);
+    clearTimeout(slowHint); clearTimeout(voiceAbortTimer);
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(parseErr(errText) || `HTTP ${res.status}`);
@@ -1590,10 +1616,13 @@ async function voiceProcessText(text) {
     setVoiceState('speaking', 'Cytonix spricht…', preview);
     voiceSpeak(reply);
   } catch (err) {
-    clearTimeout(slowHint);
+    clearTimeout(slowHint); clearTimeout(voiceAbortTimer);
     if (!voiceMode) return;
-    setVoiceState(null, 'Fehler: ' + (err.message || 'Unbekannt'), '');
-    setTimeout(() => voiceMode && !voiceMuted && startVoiceListen(), 1500);
+    const voiceErrMsg = err.name === 'AbortError'
+      ? 'Server antwortet nicht. Warte kurz und tippe das Mikro.'
+      : 'Fehler: ' + (err.message || 'Unbekannt');
+    setVoiceState(null, voiceErrMsg, '');
+    setTimeout(() => voiceMode && !voiceMuted && startVoiceListen(), 2000);
   }
 }
 
