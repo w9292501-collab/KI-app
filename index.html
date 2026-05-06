@@ -91,7 +91,18 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 @keyframes mIn{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
 .ava{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--ac),#a78bfa);display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700;color:#fff;flex-shrink:0;margin-top:2px}
 .ai-c{flex:1;min-width:0}
-.ai-lbl{font-size:.67rem;font-weight:600;color:var(--ac);letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}
+.ai-lbl{font-size:.67rem;font-weight:600;color:var(--ac);letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.routed-badge{font-size:.6rem;font-weight:500;color:var(--t2);background:rgba(124,109,250,.1);border:1px solid rgba(124,109,250,.25);padding:1px 7px;border-radius:10px;letter-spacing:0;text-transform:none}
+.agent-panel{display:flex;align-items:center;gap:7px;margin-bottom:8px;flex-wrap:wrap}
+.agent-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:.67rem;font-weight:500;border:1px solid;transition:all .3s}
+.agent-chip.router{color:#a78bfa;border-color:rgba(167,139,250,.35);background:rgba(167,139,250,.08);animation:pls 1.6s ease infinite}
+.agent-chip.router.done{animation:none;opacity:.45}
+.agent-chip.specialist{color:var(--t2);border-color:var(--b1);background:transparent}
+.agent-chip.specialist.active{color:var(--gr);border-color:rgba(34,211,165,.35);background:rgba(34,211,165,.06);animation:pls 1.3s ease infinite}
+.agent-chip.specialist.done{animation:none;opacity:.5}
+.agent-chip .chip-dot{width:5px;height:5px;border-radius:50%;background:currentColor;flex-shrink:0}
+.agent-arrow{color:var(--t2);font-size:.7rem;opacity:.5}
+.thinking-label{font-size:.67rem;color:var(--t2);font-style:italic;padding-top:1px}
 .ab{font-size:.875rem;line-height:1.75;color:var(--t1)}
 
 .err-wrap{background:rgba(255,107,107,.07);border:1px solid rgba(255,107,107,.2);border-radius:12px;padding:14px 17px;font-size:.82rem;line-height:1.65;color:#ffb3b3;display:flex;align-items:flex-start;gap:10px}
@@ -164,6 +175,22 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 .voice-mute{background:var(--s2);border:1px solid var(--b1);color:var(--t1);width:54px;height:54px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
 .voice-mute:hover{background:var(--b1)}
 .voice-mute.muted{background:var(--re);border-color:var(--re);color:#fff}
+.voice-controls{display:flex;align-items:center;gap:14px}
+.voice-screen{background:var(--s2);border:1px solid var(--b1);color:var(--t1);width:54px;height:54px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;position:relative}
+.voice-screen:hover{background:var(--b1)}
+.voice-screen svg{width:22px;height:22px}
+.voice-screen.active{background:var(--gr);border-color:var(--gr);color:#0d0d0d}
+.voice-screen.active::after{content:'';position:absolute;top:-2px;right:-2px;width:11px;height:11px;border-radius:50%;background:var(--re);border:2px solid #0a0a14;animation:pls 1.5s ease infinite}
+.screen-prev{position:absolute;top:18px;left:18px;width:160px;border-radius:10px;border:1px solid var(--b1);overflow:hidden;background:#000;display:none;box-shadow:0 4px 20px rgba(0,0,0,.6);z-index:3}
+.screen-prev.show{display:block}
+.screen-prev img{width:100%;height:auto;display:block;background:#000;max-height:120px;object-fit:cover}
+.screen-prev-lbl{font-size:.62rem;color:var(--t1);padding:5px 9px;background:rgba(0,0,0,.55);display:flex;align-items:center;gap:6px;letter-spacing:.03em}
+.screen-prev-lbl::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--gr);animation:pls 1.2s ease infinite;flex-shrink:0}
+.screen-prev-close{background:none;border:none;color:var(--t2);cursor:pointer;font-size:.85rem;margin-left:auto;line-height:1;padding:0 2px}
+.screen-prev-close:hover{color:var(--re)}
+.privacy-warn{position:absolute;top:18px;left:50%;transform:translateX(-50%);max-width:min(440px,calc(100% - 120px));background:linear-gradient(135deg,rgba(255,107,107,.96),rgba(220,38,38,.96));color:#fff;padding:11px 16px;border-radius:12px;font-size:.78rem;line-height:1.5;display:none;z-index:5;box-shadow:0 6px 24px rgba(0,0,0,.4);text-align:left}
+.privacy-warn.show{display:block;animation:mIn .25s ease}
+.privacy-warn strong{display:block;margin-bottom:3px;font-size:.82rem;font-weight:600}
 .tool-btn{background:var(--s1);border:1px solid var(--b1);border-radius:8px;padding:5px 10px;color:var(--t2);font-family:inherit;font-size:.72rem;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s}
 .tool-btn:hover{background:var(--s2);color:var(--t1);border-color:var(--b2)}
 .tool-btn svg{width:13px;height:13px}
@@ -249,6 +276,10 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
     </div>
 
     <div id="modelMenu" class="model-menu" onclick="event.stopPropagation()">
+      <div class="mm-item" data-model="cytonix-auto" onclick="selectModel('cytonix-auto')">
+        <div class="mm-name">Cytonix Auto <span class="mm-tag">✨ Multi-Agent</span></div>
+        <div class="mm-desc">Wählt selbst den besten Spezialisten für jede Frage</div>
+      </div>
       <div class="mm-item" data-model="cytonix-1.1" onclick="selectModel('cytonix-1.1')">
         <div class="mm-name">Cytonix 1.1 <span class="mm-tag">⚡ Schnell</span></div>
         <div class="mm-desc">Sehr schnelle Antworten – ideal für kurze Fragen</div>
@@ -306,33 +337,47 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 
 <div class="voice-overlay" id="voiceOverlay">
   <button class="voice-close" onclick="exitVoice()" title="Beenden">✕</button>
+  <input type="file" id="screenFileInput" accept="image/*" style="display:none">
+  <div class="screen-prev" id="screenPrev">
+    <div class="screen-prev-lbl">Bild angehängt<button class="screen-prev-close" onclick="stopVoiceScreen()" title="Entfernen">✕</button></div>
+    <img id="screenImg" src="" alt="Vorschau">
+  </div>
+  <div class="privacy-warn" id="privacyWarn"></div>
   <div class="voice-orb" id="voiceOrb"></div>
   <div class="voice-status" id="voiceStatus">Hi! Antippe das Mikro…</div>
   <div class="voice-trans" id="voiceTrans"></div>
   <div class="voice-bottom">
     <div class="voice-model" id="voiceModelLbl">Cytonix 1.3</div>
-    <button class="voice-mute" id="voiceMute" onclick="toggleVoiceMute()" title="Mikro stumm/aktiv">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-    </button>
+    <div class="voice-controls">
+      <button class="voice-mute" id="voiceMute" onclick="toggleVoiceMute()" title="Mikro stumm/aktiv">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      </button>
+      <button class="voice-screen" id="voiceScreen" onclick="toggleVoiceScreen()" title="Bild / Screenshot teilen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      </button>
+    </div>
   </div>
 </div>
 
 <script>
-const API_BASE = (location.protocol === 'file:') ? 'http://localhost:8000' : '';
-const API_URL  = API_BASE + '/api/chat';
-const HEALTH   = API_BASE + '/api/health';
+const API_BASE   = (location.protocol === 'file:') ? 'http://localhost:8000' : '';
+const API_URL    = API_BASE + '/api/chat';
+const API_STREAM = API_BASE + '/api/chat/stream';
+const HEALTH     = API_BASE + '/api/health';
 
 let chats        = JSON.parse(localStorage.getItem('cytonix_chats')||'[]');
 let cur          = null;
 let busy         = false;
 let lastTxt      = '';
 let sbOpen       = window.innerWidth > 640;
-let currentModel = localStorage.getItem('cytonix_model') || 'cytonix-1.3';
+let currentModel = localStorage.getItem('cytonix_model') || 'cytonix-auto';
 
 const MODEL_LABELS = {
+  'cytonix-auto': 'Cytonix Auto',
   'cytonix-1.1': 'Cytonix 1.1',
   'cytonix-1.2': 'Cytonix 1.2',
-  'cytonix-1.3': 'Cytonix 1.3'
+  'cytonix-1.3': 'Cytonix 1.3',
+  'cytonix-vision': 'Cytonix Vision'
 };
 
 if (!sbOpen) document.getElementById('panel').classList.add('gone');
@@ -368,7 +413,7 @@ function openChat(id) {
     const inn = mkInner();
     c.messages.forEach(m => {
       if (m.role==='user') addUser(inn, m.content);
-      else addAI(inn, m.content, m.image);
+      else addAI(inn, m.content, m.image, m.routed_to);
     });
   }
   renderHist();
@@ -422,7 +467,7 @@ function addUser(inn, text) {
   el.innerHTML=`<div class="ub">${esc(text).replace(/\n/g,'<br/>')}</div>`;
   inn.appendChild(el); scrollBot();
 }
-function addAI(inn, text, imgUrl) {
+function addAI(inn, text, imgUrl, routedTo) {
   const el=document.createElement('div'); el.className='ma-row';
   const ttsAttr = escAttr(text);
   const uid = 'img-'+Date.now()+'-'+Math.floor(Math.random()*1e6);
@@ -434,7 +479,8 @@ function addAI(inn, text, imgUrl) {
               onerror="document.getElementById('ld-${uid}').innerHTML='⚠️ Bild konnte nicht geladen werden.'"/>
        </div>`
     : '';
-  el.innerHTML=`<div class="ava">CY</div><div class="ai-c"><div class="ai-lbl">Cytonix</div><div class="ab">${md(text)}</div>${imgHtml}<button class="speak-btn" onclick="speakMsg(this)" data-tts="${ttsAttr}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg><span>Vorlesen</span></button></div>`;
+  const routedBadge = routedTo ? ` <span class="routed-badge" title="Multi-Agent-Routing">→ ${esc(MODEL_LABELS[routedTo] || routedTo)}</span>` : '';
+  el.innerHTML=`<div class="ava">CY</div><div class="ai-c"><div class="ai-lbl">Cytonix${routedBadge}</div><div class="ab">${md(text)}</div>${imgHtml}<button class="speak-btn" onclick="speakMsg(this)" data-tts="${ttsAttr}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg><span>Vorlesen</span></button></div>`;
   inn.appendChild(el); scrollBot();
   return el.querySelector('.ab');
 }
@@ -642,7 +688,7 @@ async function doSend() {
   pendingImage = null; pendingText = null; renderAttachments();
 
   try {
-    const res = await fetch(API_URL, {
+    const res = await fetch(API_STREAM, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ messages: apiMessages, model: currentModel })
@@ -651,11 +697,127 @@ async function doSend() {
       const errText = await res.text();
       throw new Error(parseErr(errText) || `HTTP ${res.status}`);
     }
-    const data = await res.json();
-    const reply = data.reply || '(leere Antwort)';
+
+    // --- Streaming display ---
     rmTyping();
-    addAI(inn2, reply);
-    c.messages.push({role:'assistant', content:reply});
+    const aiRow = document.createElement('div');
+    aiRow.className = 'ma-row';
+    aiRow.style.animation = 'mIn .22s ease';
+    inn2.appendChild(aiRow);
+    scrollBot();
+
+    // Agent panel (shown in Auto mode)
+    let agentPanel = null;
+    let routerChip = null;
+    let specialistChip = null;
+
+    function ensureAgentPanel() {
+      if (agentPanel) return;
+      agentPanel = document.createElement('div');
+      agentPanel.className = 'agent-panel';
+      aiRow.appendChild(agentPanel);
+    }
+
+    // AI label + text container
+    const ava = document.createElement('div'); ava.className = 'ava'; ava.textContent = 'CY';
+    const aiC = document.createElement('div'); aiC.className = 'ai-c';
+    const lbl = document.createElement('div'); lbl.className = 'ai-lbl'; lbl.textContent = 'Cytonix';
+    const ab  = document.createElement('div'); ab.className = 'ab';
+    aiC.appendChild(lbl);
+    aiC.appendChild(ab);
+    aiRow.appendChild(ava);
+    aiRow.appendChild(aiC);
+
+    let fullText = '';
+    let routedTo = null;
+    let isThinking = false;
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let sseBuffer = '';
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      sseBuffer += decoder.decode(value, {stream: true});
+      const lines = sseBuffer.split('\n');
+      sseBuffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        let evt;
+        try { evt = JSON.parse(raw); } catch { continue; }
+
+        if (evt.type === 'routing') {
+          ensureAgentPanel();
+          routerChip = document.createElement('span');
+          routerChip.className = 'agent-chip router';
+          routerChip.innerHTML = '<span class="chip-dot"></span>Router wählt…';
+          agentPanel.appendChild(routerChip);
+          scrollBot();
+
+        } else if (evt.type === 'routed') {
+          routedTo = evt.routed_to;
+          if (routerChip) routerChip.classList.add('done');
+          ensureAgentPanel();
+          const arrow = document.createElement('span');
+          arrow.className = 'agent-arrow'; arrow.textContent = '→';
+          agentPanel.appendChild(arrow);
+          specialistChip = document.createElement('span');
+          specialistChip.className = 'agent-chip specialist active';
+          specialistChip.innerHTML = `<span class="chip-dot"></span>${evt.label || evt.routed_to}`;
+          agentPanel.appendChild(specialistChip);
+          lbl.textContent = 'Cytonix';
+          const badge = document.createElement('span');
+          badge.className = 'routed-badge';
+          badge.textContent = '→ ' + (evt.label || evt.routed_to);
+          lbl.appendChild(badge);
+          scrollBot();
+
+        } else if (evt.type === 'thinking') {
+          isThinking = true;
+          if (!ab.querySelector('.thinking-label')) {
+            const tl = document.createElement('div');
+            tl.className = 'thinking-label'; tl.textContent = 'Denkt nach…';
+            ab.insertBefore(tl, ab.firstChild);
+          }
+
+        } else if (evt.type === 'thinking_done') {
+          isThinking = false;
+          const tl = ab.querySelector('.thinking-label');
+          if (tl) tl.remove();
+
+        } else if (evt.type === 'chunk' && !isThinking) {
+          fullText += evt.content;
+          ab.innerHTML = md(fullText);
+          scrollBot();
+
+        } else if (evt.type === 'done') {
+          if (specialistChip) specialistChip.classList.remove('active');
+          if (specialistChip) specialistChip.classList.add('done');
+
+        } else if (evt.type === 'meta') {
+          routedTo = evt.routed_to || routedTo;
+
+        } else if (evt.type === 'error') {
+          rmTyping();
+          addError(inn2, evt.message || 'Unbekannter Fehler vom Server.');
+          throw new Error(evt.message);
+        }
+      }
+    }
+
+    // Attach speak button
+    if (fullText) {
+      const ttsAttr = escAttr(fullText);
+      const speakBtn = document.createElement('button');
+      speakBtn.className = 'speak-btn';
+      speakBtn.setAttribute('data-tts', ttsAttr);
+      speakBtn.onclick = function(){ speakMsg(this); };
+      speakBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg><span>Vorlesen</span>`;
+      aiC.appendChild(speakBtn);
+    }
+
+    c.messages.push({role:'assistant', content: fullText, routed_to: routedTo});
     save();
   } catch (err) {
     rmTyping();
@@ -867,6 +1029,86 @@ let voiceMuted   = false;
 let voiceRec     = null;
 let voiceFinal   = '';
 let voiceRetry   = 0;
+let sharedImageUrl = null;
+
+// Privacy filter — patterns that should never be read aloud or echoed
+const SENSITIVE_PATTERNS = [
+  { re: /\b(?:\d[ -]?){13,19}\b/g,                               label: 'Kreditkarten-Nummer' },
+  { re: /\bDE\d{2}[ ]?(?:\d{4}[ ]?){4}\d{2}\b/gi,                label: 'IBAN' },
+  { re: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,           label: 'E-Mail-Adresse' },
+  { re: /\b(passwort|password|passwd|kennwort|cvv|cvc|geheimcode)\s*[:=]\s*\S+/gi, label: 'Passwort/PIN/TAN' },
+  { re: /\b\d{3}-\d{2}-\d{4}\b/g,                                label: 'Sozialversicherungs-Nr.' },
+  { re: /sk-[A-Za-z0-9]{16,}/g,                                  label: 'API-Key' }
+];
+
+function detectSensitive(text) {
+  if (!text) return [];
+  const found = new Set();
+  for (const p of SENSITIVE_PATTERNS) {
+    p.re.lastIndex = 0;
+    if (p.re.test(text)) found.add(p.label);
+    p.re.lastIndex = 0;
+  }
+  return [...found];
+}
+
+function redactSensitive(text) {
+  if (!text) return text;
+  let out = text;
+  for (const p of SENSITIVE_PATTERNS) {
+    out = out.replace(p.re, '[ZENSIERT]');
+  }
+  return out;
+}
+
+function showPrivacyWarning(title, msg, ms) {
+  const el = document.getElementById('privacyWarn');
+  if (!el) return;
+  el.innerHTML = '<strong>⚠️ ' + title + '</strong>' + msg;
+  el.classList.add('show');
+  if (showPrivacyWarning._t) clearTimeout(showPrivacyWarning._t);
+  showPrivacyWarning._t = setTimeout(() => el.classList.remove('show'), ms || 7000);
+}
+
+function toggleVoiceScreen() {
+  if (sharedImageUrl) { stopVoiceScreen(); return; }
+  const inp = document.getElementById('screenFileInput');
+  inp.value = '';
+  inp.click();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const inp = document.getElementById('screenFileInput');
+  if (inp) inp.addEventListener('change', () => {
+    const file = inp.files && inp.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      sharedImageUrl = e.target.result;
+      const img = document.getElementById('screenImg');
+      if (img) img.src = sharedImageUrl;
+      document.getElementById('screenPrev').classList.add('show');
+      document.getElementById('voiceScreen').classList.add('active');
+      showPrivacyWarning('Bild angehängt',
+        'Das Bild wird mit deiner nächsten Spracheingabe an Cytonix gesendet. Schließe sensible Inhalte, bevor Du fragst.', 6000);
+    };
+    reader.readAsDataURL(file);
+  });
+});
+
+function stopVoiceScreen() {
+  sharedImageUrl = null;
+  const img = document.getElementById('screenImg');
+  if (img) img.src = '';
+  const prev = document.getElementById('screenPrev');
+  const btn  = document.getElementById('voiceScreen');
+  if (prev) prev.classList.remove('show');
+  if (btn)  btn.classList.remove('active');
+}
+
+function captureScreenFrame() {
+  return sharedImageUrl || null;
+}
 
 function setVoiceState(state, statusMsg, transcript) {
   const orb = document.getElementById('voiceOrb');
@@ -911,6 +1153,7 @@ function exitVoice() {
   document.getElementById('voiceOverlay').classList.remove('show');
   if (voiceRec) { try { voiceRec.abort(); } catch(_){} voiceRec = null; }
   if ('speechSynthesis' in window) speechSynthesis.cancel();
+  stopVoiceScreen();
 }
 
 function toggleVoiceMute() {
@@ -981,31 +1224,56 @@ async function voiceProcessText(text) {
   if (!voiceMode) return;
   setVoiceState('thinking', 'Cytonix denkt…', text);
 
+  const sharingScreen = !!sharedImageUrl;
+  const frameUrl = sharingScreen ? captureScreenFrame() : null;
+  // Image is consumed — clear it so the user has to re-attach for next question
+  if (sharingScreen) stopVoiceScreen();
+
   const c = chats.find(x => x.id === cur);
-  c.messages.push({role:'user', content: text});
+  // Store user text + a marker if a screen frame went along (frame itself is not persisted to keep storage small)
+  c.messages.push({role:'user', content: sharingScreen ? text + ' [📺 Bildschirm geteilt]' : text});
   if (c.messages.length === 1 || c.title === 'Sprachchat' || c.title === 'Neuer Chat') {
     c.title = text.slice(0,36) + (text.length > 36 ? '…' : '');
     document.getElementById('tbt').textContent = c.title;
   }
   save(); renderHist();
 
-  // Show "server wakes up" hint if request is slow
   const slowHint = setTimeout(() => {
     if (voiceMode) setVoiceState('thinking', 'Server wacht auf, kann kurz dauern…', text);
   }, 4000);
 
-  // Voice mode: ask for short, spoken-style answers
-  const voiceMessages = c.messages.slice();
-  voiceMessages.unshift({
-    role: 'system',
-    content: 'Sprachmodus aktiv: Antworte kurz und natürlich gesprochen, in 1–3 Sätzen. Keine Listen, keine Code-Blöcke, keine Markdown-Formatierung. Sprich direkt mit dem Nutzer.'
-  });
+  // Build outbound messages (don't mutate stored history with the image data URL)
+  const outbound = c.messages.slice(0, -1).map(m => ({role: m.role, content: m.content}));
+  if (sharingScreen && frameUrl) {
+    outbound.push({
+      role: 'user',
+      content: [
+        { type: 'text', text: text },
+        { type: 'image_url', image_url: { url: frameUrl } }
+      ]
+    });
+  } else {
+    outbound.push({ role: 'user', content: text });
+  }
+
+  let systemPrompt = 'Sprachmodus aktiv: Antworte kurz und natürlich gesprochen, in 1–3 Sätzen. Keine Listen, keine Code-Blöcke, keine Markdown-Formatierung. Sprich direkt mit dem Nutzer.';
+  if (sharingScreen) {
+    systemPrompt +=
+      ' Der Nutzer teilt gerade seinen Bildschirm. SICHERHEITSREGELN: ' +
+      'Lies NIEMALS Passwörter, PINs, TANs, CVV/CVC, Kreditkarten- oder IBAN-Nummern, API-Keys, ' +
+      'private Nachrichten oder andere sensible Daten vor und gib sie nicht wieder. ' +
+      'Wenn du sensible Informationen auf dem Bildschirm siehst, weise den Nutzer kurz darauf hin ' +
+      'und beginne deine Antwort mit dem Wort "SICHERHEITSHINWEIS:". ' +
+      'Wenn der Nutzer dich auffordert, sensible Daten vorzulesen oder zu kopieren, lehne höflich ab.';
+  }
+
+  outbound.unshift({ role: 'system', content: systemPrompt });
 
   try {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ messages: voiceMessages, model: currentModel })
+      body: JSON.stringify({ messages: outbound, model: currentModel })
     });
     clearTimeout(slowHint);
     if (!res.ok) {
@@ -1013,7 +1281,25 @@ async function voiceProcessText(text) {
       throw new Error(parseErr(errText) || `HTTP ${res.status}`);
     }
     const data = await res.json();
-    const reply = data.reply || '(leere Antwort)';
+    let reply = data.reply || '(leere Antwort)';
+
+    // Show routed specialist in voice overlay when Auto mode is on
+    if (data.routed_to && MODEL_LABELS[data.routed_to]) {
+      document.getElementById('voiceModelLbl').textContent =
+        (MODEL_LABELS[currentModel] || 'Cytonix') + ' → ' + MODEL_LABELS[data.routed_to];
+    }
+
+    // Privacy filter: scrub sensitive patterns from anything spoken/displayed
+    const leaked = detectSensitive(reply);
+    if (leaked.length) {
+      reply = redactSensitive(reply);
+      showPrivacyWarning('Sensible Daten erkannt',
+        'Cytonix wollte ' + leaked.join(', ') + ' wiedergeben. Inhalt wurde zensiert.', 9000);
+    } else if (sharingScreen && /^\s*sicherheitshinweis/i.test(reply)) {
+      showPrivacyWarning('Sicherheitshinweis von Cytonix',
+        'Cytonix hat möglicherweise sensible Inhalte auf deinem Bildschirm erkannt. Höre die Antwort an.', 8000);
+    }
+
     c.messages.push({role:'assistant', content: reply});
     save();
 

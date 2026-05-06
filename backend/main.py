@@ -1,15 +1,16 @@
 """Cytonix Backend — FastAPI server with multiple AI providers and model presets."""
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
-from typing import Any, List, Literal, Optional
+from typing import Any, AsyncGenerator, List, Literal, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -41,9 +42,25 @@ CYTONIX_MODELS = {
         "label": "Cytonix 1.3",
         "description": "Leistungsstark – komplexe Probleme",
     },
+    "cytonix-auto": {
+        "groq_id": "",
+        "label": "Cytonix Auto",
+        "description": "Multi-Agent: wählt selbst den besten Spezialisten",
+    },
 }
-DEFAULT_CYTONIX_MODEL = os.getenv("CYTONIX_DEFAULT_MODEL", "cytonix-1.3")
+DEFAULT_CYTONIX_MODEL = os.getenv("CYTONIX_DEFAULT_MODEL", "cytonix-auto")
 GROQ_MODEL_FALLBACK = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+ROUTER_GROQ_ID = "llama-3.1-8b-instant"
+
+ROUTER_SYSTEM = (
+    "Du bist ein Routing-Agent. Schaue auf die letzte Nachricht des Nutzers "
+    "und wähle den besten Spezialisten. Antworte AUSSCHLIESSLICH mit einem "
+    "dieser vier Codes — kein anderes Wort, kein Satz, keine Erklärung:\n"
+    "1.1  → Smalltalk, einfache Fragen, kurze Faktenfragen, Begrüßungen\n"
+    "1.2  → Mathe, Logik, schrittweises Denken, Reasoning, Rätsel\n"
+    "1.3  → Code schreiben/erklären, lange Texte, komplexe Erklärungen, Kreatives\n"
+    "Antworte NUR mit '1.1', '1.2' oder '1.3'."
+)
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
@@ -81,6 +98,7 @@ class ChatResponse(BaseModel):
     reply: str
     model: str
     provider: str
+    routed_to: Optional[str] = None  # set when Auto mode picked a specialist
 
 
 def _has_image(messages: List[Message]) -> bool:
@@ -96,11 +114,58 @@ def _resolve_model(requested: Optional[str], use_vision: bool) -> tuple[str, str
     if use_vision:
         return "cytonix-vision", GROQ_VISION_MODEL
     key = (requested or DEFAULT_CYTONIX_MODEL).lower()
-    if key in CYTONIX_MODELS:
+    if key in CYTONIX_MODELS and CYTONIX_MODELS[key]["groq_id"]:
         return key, CYTONIX_MODELS[key]["groq_id"]
-    return DEFAULT_CYTONIX_MODEL, CYTONIX_MODELS.get(
-        DEFAULT_CYTONIX_MODEL, {"groq_id": GROQ_MODEL_FALLBACK}
-    )["groq_id"]
+    fallback = "cytonix-1.3" if DEFAULT_CYTONIX_MODEL == "cytonix-auto" else DEFAULT_CYTONIX_MODEL
+    return fallback, CYTONIX_MODELS.get(fallback, {"groq_id": GROQ_MODEL_FALLBACK})["groq_id"]
+
+
+def _last_user_text(messages: List["Message"]) -> str:
+    """Extract the most recent user text for the router agent."""
+    for m in reversed(messages):
+        if m.role != "user":
+            continue
+        if isinstance(m.content, str):
+            return m.content
+        if isinstance(m.content, list):
+            parts = [p.get("text", "") for p in m.content if isinstance(p, dict) and p.get("type") == "text"]
+            return "\n".join(t for t in parts if t)
+    return ""
+
+
+async def _route_with_agent(user_text: str) -> str:
+    """Ask a fast small model which specialist to use. Returns a cytonix model id."""
+    if not user_text or not GROQ_API_KEY:
+        return "cytonix-1.3"
+    snippet = user_text[:600]
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.post(
+                GROQ_URL,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": ROUTER_GROQ_ID,
+                    "messages": [
+                        {"role": "system", "content": ROUTER_SYSTEM},
+                        {"role": "user", "content": snippet},
+                    ],
+                    "stream": False,
+                    "max_tokens": 8,
+                    "temperature": 0,
+                },
+            )
+            r.raise_for_status()
+            choice = r.json()["choices"][0]["message"]["content"].strip().lower()
+    except Exception:
+        return "cytonix-1.3"
+    if "1.1" in choice:
+        return "cytonix-1.1"
+    if "1.2" in choice:
+        return "cytonix-1.2"
+    return "cytonix-1.3"
 
 
 @app.get("/api/models")
@@ -192,10 +257,135 @@ async def _chat_ollama(messages: list[dict]) -> str:
     return data.get("message", {}).get("content", "").strip()
 
 
+def _sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+async def _stream_groq(messages: list[dict], groq_model: str) -> AsyncGenerator[str, None]:
+    """Yield SSE strings from Groq streaming API, filtering <think> blocks live."""
+    if not GROQ_API_KEY:
+        yield _sse({"type": "error", "message": "GROQ_API_KEY fehlt."})
+        return
+    in_think = False
+    buf = ""
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST", GROQ_URL,
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+                json={"model": groq_model, "messages": messages, "stream": True},
+            ) as r:
+                if r.status_code != 200:
+                    body = await r.aread()
+                    yield _sse({"type": "error", "message": body.decode()[:300]})
+                    return
+                async for line in r.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    raw = line[6:].strip()
+                    if raw == "[DONE]":
+                        yield _sse({"type": "done"})
+                        return
+                    try:
+                        content = json.loads(raw)["choices"][0]["delta"].get("content") or ""
+                    except Exception:
+                        continue
+                    if not content:
+                        continue
+                    buf += content
+                    # Strip <think>…</think> blocks (DeepSeek-R1 reasoning traces)
+                    while True:
+                        if not in_think:
+                            idx = buf.find("<think>")
+                            if idx == -1:
+                                if buf:
+                                    yield _sse({"type": "chunk", "content": buf})
+                                buf = ""
+                                break
+                            before = buf[:idx]
+                            if before:
+                                yield _sse({"type": "chunk", "content": before})
+                            buf = buf[idx + len("<think>"):]
+                            in_think = True
+                            yield _sse({"type": "thinking"})
+                        else:
+                            idx = buf.find("</think>")
+                            if idx == -1:
+                                break  # still accumulating think block
+                            buf = buf[idx + len("</think>"):].lstrip("\n")
+                            in_think = False
+                            yield _sse({"type": "thinking_done"})
+    except httpx.TimeoutException:
+        yield _sse({"type": "error", "message": "Groq Timeout."})
+    except Exception as e:
+        yield _sse({"type": "error", "message": str(e)})
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """Streaming endpoint — returns SSE with live chunks and agent routing events."""
+    use_vision = _has_image(req.messages)
+    requested = (req.model or "").lower()
+
+    async def generate() -> AsyncGenerator[str, None]:
+        routed_to: Optional[str] = None
+        effective_model = req.model
+
+        if requested == "cytonix-auto" and not use_vision and PROVIDER == "groq":
+            yield _sse({"type": "routing"})
+            routed_to = await _route_with_agent(_last_user_text(req.messages))
+            effective_model = routed_to
+            label = CYTONIX_MODELS.get(routed_to, {}).get("label", routed_to)
+            yield _sse({"type": "routed", "routed_to": routed_to, "label": label})
+
+        cytonix_id, groq_model = _resolve_model(effective_model, use_vision)
+        payload = [{"role": "system", "content": SYSTEM_PROMPT}]
+        for m in req.messages:
+            payload.append({"role": m.role, "content": m.content})
+
+        if PROVIDER == "groq":
+            async for chunk in _stream_groq(payload, groq_model):
+                yield chunk
+        else:
+            # Ollama: blocking call, emit as single chunk
+            try:
+                flattened = []
+                for msg in payload:
+                    c = msg["content"]
+                    if isinstance(c, list):
+                        texts = [p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text"]
+                        msg = {**msg, "content": "\n".join(texts) or "(Bild ignoriert im Ollama-Modus)"}
+                    flattened.append(msg)
+                reply = await _chat_ollama(flattened)
+                yield _sse({"type": "chunk", "content": reply})
+                yield _sse({"type": "done"})
+            except HTTPException as e:
+                yield _sse({"type": "error", "message": e.detail})
+            except Exception as e:
+                yield _sse({"type": "error", "message": str(e)})
+
+        yield _sse({"type": "meta", "model": cytonix_id, "routed_to": routed_to})
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     use_vision = _has_image(req.messages)
-    cytonix_id, groq_model = _resolve_model(req.model, use_vision)
+
+    # Auto mode: a small router agent picks the best specialist before answering.
+    requested = (req.model or "").lower()
+    routed_to: Optional[str] = None
+    effective_model = req.model
+    if requested == "cytonix-auto" and not use_vision and PROVIDER == "groq":
+        routed_to = await _route_with_agent(_last_user_text(req.messages))
+        effective_model = routed_to
+
+    cytonix_id, groq_model = _resolve_model(effective_model, use_vision)
 
     payload = [{"role": "system", "content": SYSTEM_PROMPT}]
     for m in req.messages:
@@ -219,7 +409,7 @@ async def chat(req: ChatRequest):
 
     if not reply:
         raise HTTPException(status_code=502, detail="Leere Antwort vom Modell.")
-    return ChatResponse(reply=reply, model=active_model, provider=PROVIDER)
+    return ChatResponse(reply=reply, model=active_model, provider=PROVIDER, routed_to=routed_to)
 
 
 if (PROJECT_ROOT / "index.html").exists():
