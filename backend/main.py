@@ -128,9 +128,18 @@ class Message(BaseModel):
     content: Any  # plain string OR list of multimodal content parts
 
 
+class ToolFlags(BaseModel):
+    web: bool = False
+    weather: bool = False
+    calc: bool = False
+    translate: bool = False
+    imgedit: bool = False
+
+
 class ChatRequest(BaseModel):
     messages: List[Message] = Field(..., min_length=1)
     model: Optional[str] = None
+    tools: Optional[ToolFlags] = None
 
 
 class ChatResponse(BaseModel):
@@ -300,6 +309,206 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+# ─────────── Tools ───────────
+
+async def _tool_web_search(query: str) -> Optional[dict]:
+    """Free web search via DuckDuckGo Instant Answer + Wikipedia fallback."""
+    if not query:
+        return None
+    results: list[dict] = []
+    summary = ""
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get(
+                "https://api.duckduckgo.com/",
+                params={"q": query, "format": "json", "no_html": "1", "skip_disambig": "1"},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("AbstractText"):
+                    summary = data["AbstractText"]
+                    if data.get("AbstractURL"):
+                        results.append({"title": data.get("Heading", query), "url": data["AbstractURL"], "snippet": summary[:200]})
+                for topic in (data.get("RelatedTopics") or [])[:5]:
+                    if isinstance(topic, dict) and topic.get("Text"):
+                        results.append({"title": topic.get("Text", "")[:80], "url": topic.get("FirstURL", ""), "snippet": topic.get("Text", "")[:240]})
+    except Exception:
+        pass
+    # Wikipedia summary as backup if DDG empty
+    if not summary:
+        try:
+            from urllib.parse import quote
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                r = await client.get(
+                    f"https://de.wikipedia.org/api/rest_v1/page/summary/{quote(query)}",
+                    headers={"User-Agent": "Cytonix/1.0"},
+                    follow_redirects=True,
+                )
+                if r.status_code == 200:
+                    j = r.json()
+                    if j.get("extract"):
+                        summary = j["extract"]
+                        results.append({"title": j.get("title", query), "url": j.get("content_urls", {}).get("desktop", {}).get("page", ""), "snippet": summary[:240]})
+        except Exception:
+            pass
+    if not summary and not results:
+        return None
+    return {"summary": summary, "results": results, "query": query}
+
+
+async def _tool_weather(location: str) -> Optional[dict]:
+    """Free weather via Open-Meteo (no API key needed)."""
+    if not location:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            geo = await client.get(
+                "https://geocoding-api.open-meteo.com/v1/search",
+                params={"name": location, "count": 1, "language": "de"},
+            )
+            if geo.status_code != 200:
+                return None
+            g = geo.json().get("results") or []
+            if not g:
+                return None
+            spot = g[0]
+            lat, lon, name = spot["latitude"], spot["longitude"], spot.get("name", location)
+            country = spot.get("country", "")
+            wx = await client.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": lat, "longitude": lon,
+                    "current": "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m",
+                    "daily": "temperature_2m_max,temperature_2m_min,weather_code",
+                    "forecast_days": 3, "timezone": "auto",
+                },
+            )
+            if wx.status_code != 200:
+                return None
+            return {"location": f"{name}, {country}", **wx.json()}
+    except Exception:
+        return None
+
+
+_WEATHER_CODES = {
+    0: "klar", 1: "fast klar", 2: "teilweise bewölkt", 3: "bewölkt",
+    45: "Nebel", 48: "Reif-Nebel", 51: "leichter Sprühregen", 53: "Sprühregen",
+    55: "starker Sprühregen", 61: "leichter Regen", 63: "Regen", 65: "starker Regen",
+    71: "leichter Schnee", 73: "Schnee", 75: "starker Schnee", 77: "Schneegriesel",
+    80: "Regenschauer", 81: "starker Regenschauer", 82: "Wolkenbruch",
+    85: "Schneeschauer", 86: "starker Schneeschauer",
+    95: "Gewitter", 96: "Gewitter mit Hagel", 99: "schweres Gewitter",
+}
+
+
+def _format_weather(w: dict) -> str:
+    cur = w.get("current", {})
+    daily = w.get("daily", {})
+    code = cur.get("weather_code", 0)
+    cond = _WEATHER_CODES.get(code, f"Code {code}")
+    out = (
+        f"Wetter in {w['location']} (jetzt): {cur.get('temperature_2m')}°C ({cond}), "
+        f"gefühlt {cur.get('apparent_temperature')}°C, "
+        f"Luftfeuchte {cur.get('relative_humidity_2m')}%, "
+        f"Wind {cur.get('wind_speed_10m')} km/h."
+    )
+    days = daily.get("time", [])
+    if days:
+        out += "\nVorhersage:"
+        for i, d in enumerate(days[:3]):
+            tmax = daily["temperature_2m_max"][i]
+            tmin = daily["temperature_2m_min"][i]
+            dc = _WEATHER_CODES.get(daily["weather_code"][i], "")
+            out += f"\n  {d}: {tmin}–{tmax}°C, {dc}"
+    return out
+
+
+# Safe calculator: only digits, spaces, basic operators, parens, decimal points
+_SAFE_MATH_RE = re.compile(r"^[\d\s+\-*/().,%^]+$")
+
+def _tool_calculator(expr: str) -> Optional[dict]:
+    expr = expr.strip().replace(",", ".").replace("^", "**").replace("×", "*").replace("÷", "/")
+    if not expr or not _SAFE_MATH_RE.match(expr):
+        return None
+    if len(expr) > 200:
+        return None
+    try:
+        # Only built-in ops — no names, no calls, no attributes
+        result = eval(expr, {"__builtins__": {}}, {})  # noqa: S307 (sandboxed)
+    except Exception:
+        return None
+    if isinstance(result, (int, float)):
+        if isinstance(result, float):
+            result = round(result, 10)
+        return {"expression": expr, "result": result}
+    return None
+
+
+_LOCATION_RE = re.compile(r"(?:in|für|bei|von)\s+([A-ZÄÖÜ][\wäöüÄÖÜß\- ]{2,40})", re.IGNORECASE)
+_MATH_LINE_RE = re.compile(r"[\d.,]+\s*[+\-*/×÷^][\d.,\s+\-*/×÷^()]*[\d.,)]")
+
+
+def _extract_query_for_tool(text: str, tool: str) -> str:
+    """Pull the most relevant snippet for a given tool from the user's prompt."""
+    text = text.strip()
+    if tool == "weather":
+        m = _LOCATION_RE.search(text)
+        if m:
+            return m.group(1).strip(" ?.!,")
+        # fallback: capitalised word
+        cap = re.search(r"\b([A-ZÄÖÜ][\wäöüÄÖÜß\-]{2,})\b", text)
+        return cap.group(1) if cap else text
+    if tool == "calc":
+        m = _MATH_LINE_RE.search(text)
+        return m.group(0) if m else ""
+    return text
+
+
+async def _run_tools(user_text: str, flags: ToolFlags) -> tuple[list[dict], str]:
+    """Run enabled tools, return (events_for_ui, system_context_for_llm)."""
+    events: list[dict] = []
+    context_blocks: list[str] = []
+
+    if flags.calc:
+        expr = _extract_query_for_tool(user_text, "calc")
+        if expr:
+            res = _tool_calculator(expr)
+            if res:
+                line = f"{res['expression']} = {res['result']}"
+                events.append({"type": "tool_result", "tool": "calc", "label": "🔢 Rechner", "body": line})
+                context_blocks.append(f"[Rechner]: {line}")
+
+    if flags.weather:
+        loc = _extract_query_for_tool(user_text, "weather")
+        if loc:
+            res = await _tool_weather(loc)
+            if res:
+                body = _format_weather(res)
+                events.append({"type": "tool_result", "tool": "weather", "label": "🌤️ Wetter", "body": body})
+                context_blocks.append(f"[Aktuelles Wetter]:\n{body}")
+
+    if flags.web:
+        res = await _tool_web_search(user_text)
+        if res:
+            body_lines = []
+            if res.get("summary"):
+                body_lines.append(res["summary"])
+            for r in res.get("results", [])[:4]:
+                if r.get("url"):
+                    body_lines.append(f"• {r.get('title','')} — {r.get('url')}")
+            body = "\n".join(body_lines)[:1500]
+            events.append({"type": "tool_result", "tool": "web", "label": "🌐 Web-Suche", "body": body})
+            context_blocks.append(f"[Web-Suche zu \"{res['query']}\"]:\n{body}")
+
+    system_ctx = ""
+    if context_blocks:
+        system_ctx = (
+            "Aktuelle Werkzeug-Ergebnisse — nutze sie als Faktengrundlage für deine Antwort, "
+            "ohne sie wörtlich zu wiederholen:\n\n" + "\n\n".join(context_blocks)
+        )
+    return events, system_ctx
+
+
 async def _stream_groq(messages: list[dict], groq_model: str) -> AsyncGenerator[str, None]:
     """Yield SSE strings from Groq streaming API, filtering <think> blocks live."""
     if not GROQ_API_KEY:
@@ -383,6 +592,15 @@ async def chat_stream(req: ChatRequest):
         routed_to: Optional[str] = None
         effective_model = req.model
 
+        # Run enabled tools first — emit results as SSE events and collect context
+        tool_context = ""
+        flags = req.tools
+        if flags and any([flags.web, flags.weather, flags.calc]):
+            yield _sse({"type": "tools_running", "active": [t for t in ("web","weather","calc") if getattr(flags, t, False)]})
+            tool_events, tool_context = await _run_tools(user_text, flags)
+            for ev in tool_events:
+                yield _sse(ev)
+
         if requested == "cytonix-auto" and not use_vision and PROVIDER == "groq":
             yield _sse({"type": "routing"})
             routed_to = await _route_with_agent(_last_user_text(req.messages))
@@ -391,7 +609,12 @@ async def chat_stream(req: ChatRequest):
             yield _sse({"type": "routed", "routed_to": routed_to, "label": label})
 
         cytonix_id, groq_model = _resolve_model(effective_model, use_vision)
-        payload = [{"role": "system", "content": SYSTEM_PROMPT}]
+        sys_prompt = SYSTEM_PROMPT
+        if flags and flags.translate:
+            sys_prompt += "\n\nÜbersetzer-Modus aktiv: Wenn der Nutzer einen Text in eine andere Sprache übersetzen will, antworte nur mit der Übersetzung — keine Erklärungen, kein Vor- oder Nachtext, außer er fragt explizit danach."
+        if tool_context:
+            sys_prompt += "\n\n" + tool_context
+        payload = [{"role": "system", "content": sys_prompt}]
         for m in req.messages:
             payload.append({"role": m.role, "content": m.content})
 

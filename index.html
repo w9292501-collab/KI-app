@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Cytonix</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -36,6 +38,23 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 .new-btn{display:flex;align-items:center;gap:9px;padding:9px 12px;background:var(--s1);border:1px solid var(--b1);border-radius:10px;color:var(--t2);font-family:inherit;font-size:.8rem;cursor:pointer;transition:all .15s;width:100%;text-align:left;white-space:nowrap}
 .new-btn:hover{background:var(--s2);border-color:var(--b2);color:var(--t1)}
 .new-btn svg{flex-shrink:0;opacity:.6}
+.sb-search-wrap{position:relative;width:100%}
+.sb-search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--mu);pointer-events:none}
+#chatSearch{width:100%;background:var(--s1);border:1px solid var(--b1);border-radius:10px;padding:8px 10px 8px 32px;color:var(--t1);font-family:inherit;font-size:.78rem;outline:none;transition:border-color .15s}
+#chatSearch::placeholder{color:var(--mu)}
+#chatSearch:focus{border-color:rgba(124,109,250,.4)}
+.folder-group{margin-bottom:6px}
+.folder-head{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;cursor:pointer;color:var(--t2);font-size:.72rem;font-weight:600;letter-spacing:.02em;transition:background .15s}
+.folder-head:hover{background:var(--s1);color:var(--t1)}
+.folder-head .fcaret{transition:transform .2s;opacity:.6;font-size:.6rem}
+.folder-head.collapsed .fcaret{transform:rotate(-90deg)}
+.folder-head .fname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.folder-head .fdel{background:none;border:none;color:var(--mu);cursor:pointer;opacity:0;font-size:.7rem;padding:2px 5px;border-radius:4px;flex-shrink:0;transition:opacity .15s,color .15s;line-height:1}
+.folder-head:hover .fdel{opacity:1}.fdel:hover{color:var(--re)}
+.folder-body{padding-left:8px}
+.folder-body.hidden{display:none}
+.hi .hi-folder{background:none;border:1px solid var(--b1);color:var(--mu);font-size:.6rem;padding:1px 5px;border-radius:6px;cursor:pointer;opacity:0;transition:opacity .15s,color .15s}
+.hi:hover .hi-folder{opacity:1}.hi-folder:hover{color:var(--ac);border-color:var(--ac)}
 .sb-label{padding:8px 18px 4px;font-size:.67rem;font-weight:600;color:var(--mu);letter-spacing:.06em;text-transform:uppercase;flex-shrink:0;white-space:nowrap}
 .hist{flex:1;overflow-y:auto;padding:0 8px 12px;min-width:var(--sw)}
 .hi{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;cursor:pointer;transition:background .15s}
@@ -63,6 +82,23 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 .mm-name{font-size:.82rem;font-weight:600;color:var(--t1);margin-bottom:3px;display:flex;align-items:center;gap:6px}
 .mm-tag{font-size:.65rem;font-weight:500;color:var(--t2);background:var(--bg);padding:2px 7px;border-radius:10px;border:1px solid var(--b1)}
 .mm-desc{font-size:.7rem;color:var(--t2);line-height:1.45}
+.mm-divider{height:1px;background:var(--b1);margin:6px 4px}
+.mm-section-label{padding:6px 12px 4px;font-size:.62rem;font-weight:600;color:var(--mu);letter-spacing:.06em;text-transform:uppercase}
+.mm-tool{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:9px;cursor:pointer;transition:background .15s}
+.mm-tool:hover{background:var(--s2)}
+.mm-tool-text{flex:1;min-width:0}
+.mm-tool-name{font-size:.78rem;font-weight:500;color:var(--t1);margin-bottom:2px}
+.mm-tool-desc{font-size:.66rem;color:var(--t2);line-height:1.4}
+.mm-toggle{appearance:none;-webkit-appearance:none;width:34px;height:20px;background:var(--b2);border-radius:20px;position:relative;cursor:pointer;flex-shrink:0;transition:background .2s;outline:none;border:none}
+.mm-toggle::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .2s,background .2s}
+.mm-toggle:checked{background:var(--ac)}
+.mm-toggle:checked::after{transform:translateX(14px)}
+.tool-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:14px;font-size:.66rem;font-weight:500;background:rgba(124,109,250,.1);border:1px solid rgba(124,109,250,.3);color:var(--ac);margin-right:6px;margin-bottom:4px}
+.tool-result{background:var(--s1);border:1px solid var(--b1);border-radius:10px;padding:11px 14px;margin-bottom:8px;font-size:.78rem;line-height:1.55}
+.tool-result-head{display:flex;align-items:center;gap:7px;font-size:.7rem;font-weight:600;color:var(--ac);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+.tool-result-body{color:var(--t2);font-size:.76rem;white-space:pre-wrap;word-break:break-word}
+.tool-result-body a{color:var(--ac);text-decoration:none}
+.tool-result-body a:hover{text-decoration:underline}
 .chip{display:flex;align-items:center;gap:6px;background:rgba(34,211,165,.08);border:1px solid rgba(34,211,165,.18);border-radius:20px;padding:4px 10px;font-size:.65rem;color:var(--gr);font-weight:500;flex-shrink:0}
 .chip.off{background:rgba(255,107,107,.08);border-color:rgba(255,107,107,.18);color:var(--re)}
 .chip.off .dot{background:var(--re)}
@@ -196,6 +232,9 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 .tool-btn svg{width:13px;height:13px}
 .gen-img{margin-top:10px;display:block;width:100%;max-width:480px;border-radius:12px;border:1px solid var(--b1)}
 .gen-img-wrap{margin-top:10px;display:inline-block;max-width:100%}
+.img-actions{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.img-act{background:var(--s1);border:1px solid var(--b1);color:var(--t2);font-size:.7rem;padding:5px 10px;border-radius:8px;cursor:pointer;font-family:inherit;text-decoration:none;display:inline-flex;align-items:center;transition:all .15s}
+.img-act:hover{background:var(--s2);color:var(--t1);border-color:var(--b2)}
 .img-loading{display:flex;align-items:center;gap:9px;font-size:.78rem;color:var(--t2);padding:10px 14px;background:var(--s1);border:1px solid var(--b1);border-radius:10px;margin-top:10px}
 .img-spin{width:14px;height:14px;border:2px solid var(--b2);border-top-color:var(--ac);border-radius:50%;animation:sp .7s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -250,6 +289,14 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Neuer Chat
       </button>
+      <div class="sb-search-wrap">
+        <svg class="sb-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="search" id="chatSearch" placeholder="Chats durchsuchen…" oninput="renderHist()" autocomplete="off">
+      </div>
+      <button class="new-btn" onclick="newFolder()" title="Neuer Ordner" style="font-size:.74rem;padding:7px 11px">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        Neuer Ordner
+      </button>
     </div>
     <div class="sb-label">Verlauf</div>
     <div class="hist" id="hist">
@@ -292,12 +339,34 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
         <div class="mm-name">Cytonix 1.3 <span class="mm-tag">💪 Stark</span></div>
         <div class="mm-desc">Leistungsstärkste Variante für komplexe Aufgaben</div>
       </div>
+      <div class="mm-divider"></div>
+      <div class="mm-section-label">Werkzeuge</div>
+      <label class="mm-tool" for="tool-web">
+        <div class="mm-tool-text"><div class="mm-tool-name">🌐 Web-Suche</div><div class="mm-tool-desc">Sucht aktuelle Infos im Internet</div></div>
+        <input type="checkbox" id="tool-web" class="mm-toggle" onchange="toggleTool('web', this.checked)">
+      </label>
+      <label class="mm-tool" for="tool-weather">
+        <div class="mm-tool-text"><div class="mm-tool-name">🌤️ Wetter</div><div class="mm-tool-desc">Aktuelles Wetter & Vorhersage</div></div>
+        <input type="checkbox" id="tool-weather" class="mm-toggle" onchange="toggleTool('weather', this.checked)">
+      </label>
+      <label class="mm-tool" for="tool-calc">
+        <div class="mm-tool-text"><div class="mm-tool-name">🔢 Rechner</div><div class="mm-tool-desc">Exakte Mathe-Berechnungen</div></div>
+        <input type="checkbox" id="tool-calc" class="mm-toggle" onchange="toggleTool('calc', this.checked)">
+      </label>
+      <label class="mm-tool" for="tool-translate">
+        <div class="mm-tool-text"><div class="mm-tool-name">🌍 Übersetzer</div><div class="mm-tool-desc">Texte zwischen Sprachen übersetzen</div></div>
+        <input type="checkbox" id="tool-translate" class="mm-toggle" onchange="toggleTool('translate', this.checked)">
+      </label>
+      <label class="mm-tool" for="tool-imgedit">
+        <div class="mm-tool-text"><div class="mm-tool-name">🎨 Bildbearbeitung</div><div class="mm-tool-desc">Bilder neu generieren oder variieren</div></div>
+        <input type="checkbox" id="tool-imgedit" class="mm-toggle" onchange="toggleTool('imgedit', this.checked)">
+      </label>
     </div>
 
     <div id="msgs"></div>
 
     <div class="inp-area">
-      <input type="file" id="fileInput" accept="text/*,.txt,.md,.json,.csv,.py,.js,.ts,.html,.css,.yml,.yaml,.sh,.log,.xml" style="display:none" onchange="handleFileSelect(event)"/>
+      <input type="file" id="fileInput" accept="text/*,.txt,.md,.json,.csv,.py,.js,.ts,.html,.css,.yml,.yaml,.sh,.log,.xml,.pdf,application/pdf" style="display:none" onchange="handleFileSelect(event)"/>
       <input type="file" id="fileInputImg" accept="image/*" style="display:none" onchange="handleFileSelect(event)"/>
       <div class="add-menu" id="addMenu" onclick="event.stopPropagation()">
         <button class="add-item" type="button" onclick="addPick('photo')">
@@ -306,7 +375,7 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
         </button>
         <button class="add-item" type="button" onclick="addPick('file')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-          <span class="ai-meta"><span>Datei hochladen</span><span class="ai-sub">Text, Code, JSON…</span></span>
+          <span class="ai-meta"><span>Datei hochladen</span><span class="ai-sub">PDF, Text, Code, JSON…</span></span>
         </button>
         <button class="add-item" type="button" onclick="addPick('image')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>
@@ -371,6 +440,19 @@ let busy         = false;
 let lastTxt      = '';
 let sbOpen       = window.innerWidth > 640;
 let currentModel = localStorage.getItem('cytonix_model') || 'cytonix-auto';
+let activeTools = JSON.parse(localStorage.getItem('cytonix_tools') || '{}');
+
+function toggleTool(name, on) {
+  activeTools[name] = on;
+  localStorage.setItem('cytonix_tools', JSON.stringify(activeTools));
+}
+
+function applyToolStates() {
+  ['web','weather','calc','translate','imgedit'].forEach(t => {
+    const el = document.getElementById('tool-'+t);
+    if (el) el.checked = !!activeTools[t];
+  });
+}
 
 const MODEL_LABELS = {
   'cytonix-auto': 'Cytonix Auto',
@@ -413,7 +495,7 @@ function openChat(id) {
     const inn = mkInner();
     c.messages.forEach(m => {
       if (m.role==='user') addUser(inn, m.content);
-      else addAI(inn, m.content, m.image, m.routed_to);
+      else addAI(inn, m.content, m.image, m.routed_to, m.imgPrompt);
     });
   }
   renderHist();
@@ -425,19 +507,104 @@ function delChat(id,e) {
   if (cur===id) { cur=null; renderWelcome(); document.getElementById('tbt').textContent='Neuer Chat'; }
   renderHist();
 }
+
+let folders = JSON.parse(localStorage.getItem('cytonix_folders') || '[]');
+let collapsedFolders = new Set(JSON.parse(localStorage.getItem('cytonix_collapsed') || '[]'));
+
+function saveFolders() {
+  localStorage.setItem('cytonix_folders', JSON.stringify(folders));
+  localStorage.setItem('cytonix_collapsed', JSON.stringify([...collapsedFolders]));
+}
+
+function newFolder() {
+  const name = prompt('Name des Ordners:');
+  if (!name || !name.trim()) return;
+  folders.unshift({id: 'f' + Date.now(), name: name.trim()});
+  saveFolders();
+  renderHist();
+}
+
+function delFolder(fid, e) {
+  e.stopPropagation();
+  if (!confirm('Ordner löschen? Chats darin werden zu „Verlauf" verschoben.')) return;
+  folders = folders.filter(f => f.id !== fid);
+  chats.forEach(c => { if (c.folder === fid) c.folder = null; });
+  saveFolders(); save();
+  renderHist();
+}
+
+function toggleFolder(fid) {
+  if (collapsedFolders.has(fid)) collapsedFolders.delete(fid);
+  else collapsedFolders.add(fid);
+  saveFolders();
+  renderHist();
+}
+
+function moveToFolder(chatId, e) {
+  e.stopPropagation();
+  if (!folders.length) { alert('Erstelle zuerst einen Ordner.'); return; }
+  const opts = ['(Verlauf, kein Ordner)'].concat(folders.map((f,i)=>`${i+1}: ${f.name}`));
+  const pick = prompt('Wohin verschieben?\n' + opts.join('\n') + '\n\nGib die Nummer ein (0 für Verlauf):');
+  if (pick === null) return;
+  const n = parseInt(pick, 10);
+  const c = chats.find(x => x.id === chatId);
+  if (!c) return;
+  if (n === 0) c.folder = null;
+  else if (folders[n-1]) c.folder = folders[n-1].id;
+  save(); renderHist();
+}
+
+function chatMatchesQuery(c, q) {
+  if (!q) return true;
+  q = q.toLowerCase();
+  if ((c.title || '').toLowerCase().includes(q)) return true;
+  for (const m of (c.messages || [])) {
+    const txt = typeof m.content === 'string' ? m.content : (Array.isArray(m.content) ? m.content.map(p=>p.text||'').join(' ') : '');
+    if (txt.toLowerCase().includes(q)) return true;
+  }
+  return false;
+}
+
+function renderChatItem(c) {
+  const el = document.createElement('div');
+  el.className = 'hi' + (c.id === cur ? ' active' : '');
+  el.innerHTML = `<span class="hi-icon">💬</span><span class="hi-title">${esc(c.title)}</span><button class="hi-folder" onclick="moveToFolder('${c.id}',event)" title="In Ordner verschieben">⊕</button><button class="hi-del" onclick="delChat('${c.id}',event)">✕</button>`;
+  el.addEventListener('click', () => openChat(c.id));
+  return el;
+}
+
 function renderHist() {
-  const h = document.getElementById('hist');
+  const h  = document.getElementById('hist');
   const em = document.getElementById('hempty');
-  Array.from(h.querySelectorAll('.hi')).forEach(e=>e.remove());
-  if (!chats.length) { em.style.display=''; return; }
-  em.style.display='none';
-  chats.forEach(c=>{
-    const el=document.createElement('div');
-    el.className='hi'+(c.id===cur?' active':'');
-    el.innerHTML=`<span class="hi-icon">💬</span><span class="hi-title">${esc(c.title)}</span><button class="hi-del" onclick="delChat('${c.id}',event)">✕</button>`;
-    el.addEventListener('click',()=>openChat(c.id));
-    h.appendChild(el);
-  });
+  h.innerHTML = '';
+  const q = (document.getElementById('chatSearch')?.value || '').trim();
+  const filtered = chats.filter(c => chatMatchesQuery(c, q));
+  if (!filtered.length && !folders.length) {
+    h.appendChild(em); em.style.display = ''; em.textContent = q ? 'Keine Treffer' : 'Noch keine Gespräche';
+    return;
+  }
+  em.style.display = 'none';
+
+  // Folder groups first
+  for (const f of folders) {
+    const inFolder = filtered.filter(c => c.folder === f.id);
+    if (q && !inFolder.length) continue;
+    const grp = document.createElement('div'); grp.className = 'folder-group';
+    const head = document.createElement('div');
+    head.className = 'folder-head' + (collapsedFolders.has(f.id) ? ' collapsed' : '');
+    head.innerHTML = `<span class="fcaret">▼</span><span class="fname">📁 ${esc(f.name)}</span><button class="fdel" onclick="delFolder('${f.id}',event)" title="Ordner löschen">✕</button>`;
+    head.addEventListener('click', e => { if (!e.target.closest('.fdel')) toggleFolder(f.id); });
+    grp.appendChild(head);
+    const body = document.createElement('div');
+    body.className = 'folder-body' + (collapsedFolders.has(f.id) ? ' hidden' : '');
+    inFolder.forEach(c => body.appendChild(renderChatItem(c)));
+    grp.appendChild(body);
+    h.appendChild(grp);
+  }
+
+  // Loose chats (no folder)
+  const loose = filtered.filter(c => !c.folder);
+  loose.forEach(c => h.appendChild(renderChatItem(c)));
 }
 
 function renderWelcome() {
@@ -467,16 +634,22 @@ function addUser(inn, text) {
   el.innerHTML=`<div class="ub">${esc(text).replace(/\n/g,'<br/>')}</div>`;
   inn.appendChild(el); scrollBot();
 }
-function addAI(inn, text, imgUrl, routedTo) {
+function addAI(inn, text, imgUrl, routedTo, imgPrompt) {
   const el=document.createElement('div'); el.className='ma-row';
   const ttsAttr = escAttr(text);
   const uid = 'img-'+Date.now()+'-'+Math.floor(Math.random()*1e6);
+  const promptAttr = escAttr(imgPrompt || '');
   const imgHtml = imgUrl
     ? `<div class="gen-img-wrap">
          <div class="img-loading" id="ld-${uid}"><div class="img-spin"></div>Bild wird generiert…</div>
          <img class="gen-img" id="${uid}" style="display:none" src="${imgUrl}" alt="Generiertes Bild"
               onload="document.getElementById('ld-${uid}').style.display='none';this.style.display='block';scrollBot()"
               onerror="document.getElementById('ld-${uid}').innerHTML='⚠️ Bild konnte nicht geladen werden.'"/>
+         <div class="img-actions">
+           <button class="img-act" data-prompt="${promptAttr}" onclick="imgVariation(this)" title="Neue Variante">🎲 Variation</button>
+           <button class="img-act" data-prompt="${promptAttr}" onclick="imgRefine(this)" title="Bild verfeinern">✨ Verfeinern</button>
+           <a class="img-act" href="${imgUrl}" download="cytonix-bild.png" title="Bild herunterladen">⬇️ Speichern</a>
+         </div>
        </div>`
     : '';
   const routedBadge = routedTo ? ` <span class="routed-badge" title="Multi-Agent-Routing">→ ${esc(MODEL_LABELS[routedTo] || routedTo)}</span>` : '';
@@ -681,8 +854,8 @@ async function doSend() {
     const imageUrl = pollinationsURL(prompt);
     const reply = `Hier ist dein Bild: **${prompt}**`;
     rmTyping();
-    addAI(inn2, reply, imageUrl);
-    c.messages.push({role:'assistant', content: reply, image: imageUrl});
+    addAI(inn2, reply, imageUrl, undefined, prompt);
+    c.messages.push({role:'assistant', content: reply, image: imageUrl, imgPrompt: prompt});
     save();
     busy = false;
     document.getElementById('sb').disabled = false;
@@ -719,7 +892,7 @@ async function doSend() {
     const res = await fetch(API_STREAM, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ messages: apiMessages, model: currentModel })
+      body: JSON.stringify({ messages: apiMessages, model: currentModel, tools: activeTools })
     });
     if (!res.ok) {
       const errText = await res.text();
@@ -775,7 +948,35 @@ async function doSend() {
         let evt;
         try { evt = JSON.parse(raw); } catch { continue; }
 
-        if (evt.type === 'routing') {
+        if (evt.type === 'tools_running') {
+          ensureAgentPanel();
+          (evt.active || []).forEach(t => {
+            const chip = document.createElement('span');
+            chip.className = 'tool-chip';
+            chip.id = 'tool-running-' + t;
+            const labels = {web:'🌐 Web…', weather:'🌤️ Wetter…', calc:'🔢 Rechner…'};
+            chip.textContent = labels[t] || t;
+            agentPanel.appendChild(chip);
+          });
+          scrollBot();
+
+        } else if (evt.type === 'tool_result') {
+          const running = document.getElementById('tool-running-' + evt.tool);
+          if (running) running.remove();
+          const card = document.createElement('div');
+          card.className = 'tool-result';
+          const head = document.createElement('div');
+          head.className = 'tool-result-head';
+          head.textContent = evt.label || evt.tool;
+          const body = document.createElement('div');
+          body.className = 'tool-result-body';
+          body.textContent = evt.body || '';
+          card.appendChild(head);
+          card.appendChild(body);
+          aiC.insertBefore(card, ab);
+          scrollBot();
+
+        } else if (evt.type === 'routing') {
           ensureAgentPanel();
           routerChip = document.createElement('span');
           routerChip.className = 'agent-chip router';
@@ -941,13 +1142,39 @@ function readAsText(file) {
     r.readAsText(file);
   });
 }
+async function extractPdfText(file) {
+  if (!window.pdfjsLib) throw new Error('PDF-Bibliothek noch nicht geladen.');
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data: buf}).promise;
+  const pages = [];
+  const maxPages = Math.min(pdf.numPages, 100);
+  for (let i = 1; i <= maxPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const text = content.items.map(it => it.str).join(' ');
+    pages.push(`--- Seite ${i} ---\n${text}`);
+  }
+  return pages.join('\n\n');
+}
+
 async function handleFileSelect(e) {
   const file = e.target.files && e.target.files[0];
   e.target.value = '';
   if (!file) return;
-  const isImage = file.type.startsWith('image/');
-  const isText  = file.type.startsWith('text/') || TEXT_FILE_RE.test(file.name);
-  if (isImage) {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const isImage = !isPdf && file.type.startsWith('image/');
+  const isText  = !isPdf && (file.type.startsWith('text/') || TEXT_FILE_RE.test(file.name));
+  if (isPdf) {
+    if (file.size > 20 * 1024 * 1024) { alert('PDF zu groß (max 20 MB).'); return; }
+    try {
+      const txt = await extractPdfText(file);
+      if (!txt.trim()) { alert('Aus dieser PDF konnte kein Text gelesen werden (vielleicht gescannt?).'); return; }
+      pendingText = { content: txt, name: file.name, size: file.size };
+      pendingImage = null;
+    } catch (err) {
+      alert('PDF-Fehler: ' + (err.message || err)); return;
+    }
+  } else if (isImage) {
     if (file.size > MAX_IMAGE_BYTES) {
       alert('Bild zu groß (max 4 MB).'); return;
     }
@@ -962,7 +1189,7 @@ async function handleFileSelect(e) {
     pendingText = { content, name: file.name, size: file.size };
     pendingImage = null;
   } else {
-    alert('Dateityp nicht unterstützt. Erlaubt: Bilder oder Text-/Code-Dateien.');
+    alert('Dateityp nicht unterstützt. Erlaubt: PDF, Bilder oder Text-/Code-Dateien.');
     return;
   }
   renderAttachments();
@@ -1013,6 +1240,33 @@ function pollinationsURL(prompt) {
   const seed = Math.floor(Math.random() * 1e9);
   return 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt)
        + '?width=768&height=768&seed=' + seed + '&nologo=true&enhance=true';
+}
+
+function imgVariation(btn) {
+  const prompt = btn.dataset.prompt || '';
+  if (!prompt) return;
+  const newUrl = pollinationsURL(prompt);
+  const wrap = btn.closest('.gen-img-wrap');
+  const img = wrap.querySelector('.gen-img');
+  const ld  = wrap.querySelector('.img-loading');
+  if (ld) { ld.style.display = 'flex'; ld.innerHTML = '<div class="img-spin"></div>Neue Variante…'; }
+  if (img) { img.style.display = 'none'; img.src = newUrl; }
+}
+
+function imgRefine(btn) {
+  const refinement = window.prompt('Wie soll das Bild verändert werden? (z.B. „düsterer", „im Comic-Stil", „mit Sonnenuntergang"):');
+  if (!refinement || !refinement.trim()) return;
+  const base = btn.dataset.prompt || '';
+  const newPrompt = (base + ', ' + refinement.trim()).slice(0, 400);
+  const newUrl = pollinationsURL(newPrompt);
+  const wrap = btn.closest('.gen-img-wrap');
+  const img = wrap.querySelector('.gen-img');
+  const ld  = wrap.querySelector('.img-loading');
+  if (ld) { ld.style.display = 'flex'; ld.innerHTML = '<div class="img-spin"></div>Verfeinere…'; }
+  if (img) { img.style.display = 'none'; img.src = newUrl; }
+  wrap.querySelectorAll('.img-act[data-prompt]').forEach(b => b.dataset.prompt = newPrompt);
+  const dl = wrap.querySelector('a.img-act');
+  if (dl) dl.href = newUrl;
 }
 function askForImage() {
   const ui = document.getElementById('ui');
@@ -1363,6 +1617,7 @@ function voiceSpeak(text) {
 }
 
 setModelLabel();
+applyToolStates();
 renderWelcome();
 renderHist();
 checkHealth();
