@@ -324,42 +324,30 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 
     <div id="modelMenu" class="model-menu" onclick="event.stopPropagation()">
       <div class="mm-item" data-model="cytonix-auto" onclick="selectModel('cytonix-auto')">
-        <div class="mm-name">Cytonix Auto <span class="mm-tag">✨ Multi-Agent</span></div>
+        <div class="mm-name">Cytonix Auto <span class="mm-tag">Multi-Agent</span></div>
         <div class="mm-desc">Wählt selbst den besten Spezialisten für jede Frage</div>
       </div>
       <div class="mm-item" data-model="cytonix-1.1" onclick="selectModel('cytonix-1.1')">
-        <div class="mm-name">Cytonix 1.1 <span class="mm-tag">⚡ Schnell</span></div>
+        <div class="mm-name">Cytonix 1.1 <span class="mm-tag">Schnell</span></div>
         <div class="mm-desc">Sehr schnelle Antworten – ideal für kurze Fragen</div>
       </div>
       <div class="mm-item" data-model="cytonix-1.2" onclick="selectModel('cytonix-1.2')">
-        <div class="mm-name">Cytonix 1.2 <span class="mm-tag">🧠 Logisch</span></div>
+        <div class="mm-name">Cytonix 1.2 <span class="mm-tag">Logisch</span></div>
         <div class="mm-desc">Reasoning-Modus für logisches Denken</div>
       </div>
       <div class="mm-item" data-model="cytonix-1.3" onclick="selectModel('cytonix-1.3')">
-        <div class="mm-name">Cytonix 1.3 <span class="mm-tag">💪 Stark</span></div>
+        <div class="mm-name">Cytonix 1.3 <span class="mm-tag">Stark</span></div>
         <div class="mm-desc">Leistungsstärkste Variante für komplexe Aufgaben</div>
       </div>
       <div class="mm-divider"></div>
-      <div class="mm-section-label">Werkzeuge</div>
+      <div class="mm-section-label">Extras</div>
       <label class="mm-tool" for="tool-web">
-        <div class="mm-tool-text"><div class="mm-tool-name">🌐 Web-Suche</div><div class="mm-tool-desc">Sucht aktuelle Infos im Internet</div></div>
+        <div class="mm-tool-text"><div class="mm-tool-name">Web-Suche</div><div class="mm-tool-desc">Sucht aktuelle Infos im Internet</div></div>
         <input type="checkbox" id="tool-web" class="mm-toggle" onchange="toggleTool('web', this.checked)">
       </label>
-      <label class="mm-tool" for="tool-weather">
-        <div class="mm-tool-text"><div class="mm-tool-name">🌤️ Wetter</div><div class="mm-tool-desc">Aktuelles Wetter & Vorhersage</div></div>
-        <input type="checkbox" id="tool-weather" class="mm-toggle" onchange="toggleTool('weather', this.checked)">
-      </label>
-      <label class="mm-tool" for="tool-calc">
-        <div class="mm-tool-text"><div class="mm-tool-name">🔢 Rechner</div><div class="mm-tool-desc">Exakte Mathe-Berechnungen</div></div>
-        <input type="checkbox" id="tool-calc" class="mm-toggle" onchange="toggleTool('calc', this.checked)">
-      </label>
-      <label class="mm-tool" for="tool-translate">
-        <div class="mm-tool-text"><div class="mm-tool-name">🌍 Übersetzer</div><div class="mm-tool-desc">Texte zwischen Sprachen übersetzen</div></div>
-        <input type="checkbox" id="tool-translate" class="mm-toggle" onchange="toggleTool('translate', this.checked)">
-      </label>
-      <label class="mm-tool" for="tool-imgedit">
-        <div class="mm-tool-text"><div class="mm-tool-name">🎨 Bildbearbeitung</div><div class="mm-tool-desc">Bilder neu generieren oder variieren</div></div>
-        <input type="checkbox" id="tool-imgedit" class="mm-toggle" onchange="toggleTool('imgedit', this.checked)">
+      <label class="mm-tool" for="tool-deepthink">
+        <div class="mm-tool-text"><div class="mm-tool-name">Länger nachdenken</div><div class="mm-tool-desc">Schaltet auf Reasoning-Modus für schwierige Aufgaben</div></div>
+        <input type="checkbox" id="tool-deepthink" class="mm-toggle" onchange="setDeepThink(this.checked)">
       </label>
     </div>
 
@@ -441,17 +429,23 @@ let lastTxt      = '';
 let sbOpen       = window.innerWidth > 640;
 let currentModel = localStorage.getItem('cytonix_model') || 'cytonix-auto';
 let activeTools = JSON.parse(localStorage.getItem('cytonix_tools') || '{}');
+let deepThink = localStorage.getItem('cytonix_deepthink') === '1';
 
 function toggleTool(name, on) {
   activeTools[name] = on;
   localStorage.setItem('cytonix_tools', JSON.stringify(activeTools));
 }
 
+function setDeepThink(on) {
+  deepThink = on;
+  localStorage.setItem('cytonix_deepthink', on ? '1' : '0');
+}
+
 function applyToolStates() {
-  ['web','weather','calc','translate','imgedit'].forEach(t => {
-    const el = document.getElementById('tool-'+t);
-    if (el) el.checked = !!activeTools[t];
-  });
+  const el = document.getElementById('tool-web');
+  if (el) el.checked = !!activeTools.web;
+  const dt = document.getElementById('tool-deepthink');
+  if (dt) dt.checked = deepThink;
 }
 
 const MODEL_LABELS = {
@@ -922,7 +916,7 @@ async function doSend() {
       signal: abortCtrl.signal,
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ messages: apiMessages, model: currentModel })
+      body: JSON.stringify({ messages: apiMessages, model: deepThink ? 'cytonix-1.2' : currentModel })
     });
     clearTimeout(wakeHint);
     resetIdleTimeout(60000);
