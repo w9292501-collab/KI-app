@@ -816,28 +816,37 @@ async function doSend() {
   lastTxt = text;
   inp.value=''; inp.style.height='auto';
 
-  // What we display & save in history (images aren't persisted as data URLs to keep storage small)
   let displayText = text;
   if (pendingImage) displayText = (text || 'Was siehst du auf diesem Bild?') + ` 🖼️ ${pendingImage.name}`;
   else if (pendingText) displayText = (text || 'Analysiere diese Datei') + ` 📄 ${pendingText.name}`;
 
+  // Ensure a valid chat exists
   if (!cur) {
-    const id=Date.now().toString();
+    const id = Date.now().toString();
     const title = displayText.slice(0,36)+(displayText.length>36?'…':'');
     chats.unshift({id, title, messages:[]});
     cur = id;
     document.getElementById('tbt').textContent = title;
   }
-  const c = chats.find(x=>x.id===cur);
+  let c = chats.find(x=>x.id===cur);
+  if (!c) {
+    // cur points to a deleted chat — create a fresh one
+    const id = Date.now().toString();
+    c = {id, title: displayText.slice(0,36), messages:[]};
+    chats.unshift(c);
+    cur = id;
+    document.getElementById('tbt').textContent = c.title;
+  }
   c.messages.push({role:'user', content: displayText});
   if (c.messages.length === 1) {
     c.title = displayText.slice(0,36)+(displayText.length>36?'…':'');
     document.getElementById('tbt').textContent = c.title;
   }
-  save(); renderHist();
+  try { save(); } catch(_) {}
+  try { renderHist(); } catch(_) {}
 
-  const inn = mkInner();
-  if (document.getElementById('wlc')) document.getElementById('msgs').innerHTML='', inn.remove?.(), mkInner();
+  // Clear welcome screen if present, set up message container
+  if (document.getElementById('wlc')) document.getElementById('msgs').innerHTML = '';
   const inn2 = mkInner();
   addUser(inn2, displayText);
   addTyping(inn2);
