@@ -1,14 +1,16 @@
 """Cytonix Backend — FastAPI server with multiple AI providers and model presets."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, AsyncGenerator, List, Literal, Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -25,6 +27,9 @@ PROVIDER = os.getenv("CYTONIX_PROVIDER", "groq").lower()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+ALLOWED_EMAIL = os.getenv("ALLOWED_EMAIL", "")  # comma-separated list of allowed Google emails
 
 CYTONIX_MODELS = {
     "cytonix-1.1": {
@@ -122,6 +127,50 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_token_cache: dict[str, float] = {}   # sha256(token) -> expiry (unix seconds)
+_token_email: dict[str, str] = {}    # sha256(token) -> email
+
+
+async def _verify_google_token(token: str) -> str:
+    """Verify a Google ID token and return the email. Raises HTTPException on failure."""
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    now = time.time()
+    if token_hash in _token_cache and _token_cache[token_hash] > now + 60:
+        return _token_email[token_hash]
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://oauth2.googleapis.com/tokeninfo",
+                params={"id_token": token},
+            )
+    except Exception:
+        raise HTTPException(status_code=401, detail="Google-Token-Prüfung fehlgeschlagen.")
+    if r.status_code != 200:
+        raise HTTPException(status_code=401, detail="Ungültiges oder abgelaufenes Google-Token.")
+    data = r.json()
+    if GOOGLE_CLIENT_ID and data.get("aud") != GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=401, detail="Token nicht für diese App ausgestellt.")
+    email = data.get("email", "").lower()
+    if not email:
+        raise HTTPException(status_code=401, detail="Keine E-Mail-Adresse im Token.")
+    if ALLOWED_EMAIL:
+        allowed = {e.strip().lower() for e in ALLOWED_EMAIL.split(",") if e.strip()}
+        if email not in allowed:
+            raise HTTPException(status_code=403, detail="Kein Zugriff für diese E-Mail-Adresse.")
+    exp = float(data.get("exp", now + 3600))
+    _token_cache[token_hash] = exp
+    _token_email[token_hash] = email
+    return email
+
+
+async def _auth_check(authorization: str = Header(default="")) -> None:
+    """FastAPI dependency — enforces Google auth if GOOGLE_CLIENT_ID is configured."""
+    if not GOOGLE_CLIENT_ID:
+        return  # auth disabled
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Nicht angemeldet.")
+    await _verify_google_token(authorization[7:])
+
 
 class Message(BaseModel):
     role: Literal["user", "assistant", "system"]
@@ -214,6 +263,15 @@ async def _route_with_agent(user_text: str) -> str:
     if "1.2" in choice:
         return "cytonix-1.2"
     return "cytonix-1.3"
+
+
+@app.get("/api/config")
+async def api_config():
+    """Public endpoint — returns frontend config (Google client ID for login)."""
+    return {
+        "google_client_id": GOOGLE_CLIENT_ID,
+        "auth_required": bool(GOOGLE_CLIENT_ID),
+    }
 
 
 @app.get("/api/models")
@@ -569,7 +627,7 @@ async def _stream_groq(messages: list[dict], groq_model: str) -> AsyncGenerator[
         yield _sse({"type": "error", "message": str(e)})
 
 
-@app.post("/api/chat/stream")
+@app.post("/api/chat/stream", dependencies=[Depends(_auth_check)])
 async def chat_stream(req: ChatRequest):
     """Streaming endpoint — returns SSE with live chunks and agent routing events."""
     use_vision = _has_image(req.messages)
@@ -648,7 +706,7 @@ async def chat_stream(req: ChatRequest):
     )
 
 
-@app.post("/api/chat", response_model=ChatResponse)
+@app.post("/api/chat", response_model=ChatResponse, dependencies=[Depends(_auth_check)])
 async def chat(req: ChatRequest):
     if _is_blocked(_last_user_text(req.messages)):
         return ChatResponse(reply=BLOCKED_REPLY, model="safety-filter", provider=PROVIDER)
