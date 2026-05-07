@@ -323,10 +323,6 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
     </div>
 
     <div id="modelMenu" class="model-menu" onclick="event.stopPropagation()">
-      <div class="mm-item" data-model="cytonix-auto" onclick="selectModel('cytonix-auto')">
-        <div class="mm-name">Cytonix Auto <span class="mm-tag">Multi-Agent</span></div>
-        <div class="mm-desc">Wählt selbst den besten Spezialisten für jede Frage</div>
-      </div>
       <div class="mm-item" data-model="cytonix-1.1" onclick="selectModel('cytonix-1.1')">
         <div class="mm-name">Cytonix 1.1 <span class="mm-tag">Schnell</span></div>
         <div class="mm-desc">Sehr schnelle Antworten – ideal für kurze Fragen</div>
@@ -427,7 +423,7 @@ let cur          = null;
 let busy         = false;
 let lastTxt      = '';
 let sbOpen       = window.innerWidth > 640;
-let currentModel = localStorage.getItem('cytonix_model') || 'cytonix-auto';
+let currentModel = (() => { const m = localStorage.getItem('cytonix_model'); return (m && m !== 'cytonix-auto') ? m : 'cytonix-1.3'; })();
 let activeTools = JSON.parse(localStorage.getItem('cytonix_tools') || '{}');
 let deepThink = localStorage.getItem('cytonix_deepthink') === '1';
 
