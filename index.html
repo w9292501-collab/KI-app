@@ -889,7 +889,11 @@ async function doSend() {
   pendingImage = null; pendingText = null; renderAttachments();
 
   const abortCtrl = new AbortController();
-  const abortTimer = setTimeout(() => abortCtrl.abort(), 90000);
+  let abortTimer = setTimeout(() => abortCtrl.abort(), 90000);
+  const resetIdleTimeout = (ms) => {
+    if (abortTimer) clearTimeout(abortTimer);
+    abortTimer = setTimeout(() => abortCtrl.abort(), ms);
+  };
   const wakeHint = setTimeout(() => {
     const typr = document.getElementById('typr');
     if (typr) {
@@ -911,7 +915,8 @@ async function doSend() {
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ messages: apiMessages, model: currentModel })
     });
-    clearTimeout(wakeHint); clearTimeout(abortTimer);
+    clearTimeout(wakeHint);
+    resetIdleTimeout(60000);
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(parseErr(errText) || `HTTP ${res.status}`);
@@ -934,6 +939,7 @@ async function doSend() {
       : (err.message || 'Verbindung zum Server fehlgeschlagen.');
     addError(inn2, errMsg);
   } finally {
+    clearTimeout(abortTimer);
     busy = false;
     document.getElementById('sb').disabled = false;
     inp.focus();
