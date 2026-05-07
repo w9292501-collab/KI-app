@@ -653,6 +653,20 @@ function addTyping(inn) {
   inn.appendChild(el); scrollBot();
 }
 function rmTyping() { const t=document.getElementById('typr'); if(t)t.remove(); }
+
+async function typeOut(ab, text) {
+  if (!ab || !text) return;
+  const words = text.split(' ');
+  let built = '';
+  for (let i = 0; i < words.length; i++) {
+    built += (i === 0 ? '' : ' ') + words[i];
+    ab.innerHTML = md(built);
+    scrollBot();
+    await new Promise(r => setTimeout(r, 18));
+  }
+  ab.innerHTML = md(text);
+  scrollBot();
+}
 function addError(inn, msg) {
   const el=document.createElement('div'); el.className='ma-row';
   el.innerHTML=`<div class="ava" style="background:rgba(255,107,107,.2);color:var(--re)">!</div><div class="ai-c"><div class="ai-lbl" style="color:var(--re)">Fehler</div><div class="err-wrap"><span class="err-ic">⚠️</span><div><div>${esc(msg)}</div><button class="err-retry" onclick="retry()">↺ Erneut versuchen</button></div></div></div>`;
@@ -926,7 +940,8 @@ async function doSend() {
     if (!fullText) throw new Error('Leere Antwort vom Server — bitte erneut versuchen.');
 
     rmTyping();
-    addAI(inn2, fullText, null, routedTo, null);
+    const ab = addAI(inn2, '', null, routedTo, null);
+    await typeOut(ab, fullText);
     c.messages.push({role:'assistant', content: fullText, routed_to: routedTo});
     save();
 
