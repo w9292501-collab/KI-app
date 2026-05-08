@@ -534,13 +534,22 @@ function _initGoogleButton(clientId) {
 
 let _ttsAvailable = false;
 
-async function initAuth() {
-  let cfg = { auth_required: false };
+async function _loadConfig() {
   try {
-    const r = await fetch(CONFIG_URL, { signal: AbortSignal.timeout(8000) });
-    if (r.ok) cfg = await r.json();
+    const r = await fetch(CONFIG_URL, { signal: AbortSignal.timeout(10000) });
+    if (r.ok) return await r.json();
   } catch (_) {}
+  return null;
+}
 
+async function _recheckTTS() {
+  if (_ttsAvailable) return;
+  const cfg = await _loadConfig();
+  if (cfg && cfg.tts_available) _ttsAvailable = true;
+}
+
+async function initAuth() {
+  const cfg = (await _loadConfig()) || { auth_required: false };
   _ttsAvailable = !!cfg.tts_available;
 
   if (!cfg.auth_required) {
@@ -896,6 +905,23 @@ let currentSpeakBtn = null;
 let _currentAudio = null;
 const TTS_URL = API_BASE + '/api/tts';
 
+// Unlock audio on first user touch so audio.play() works on mobile
+let _audioUnlocked = false;
+function _unlockAudio() {
+  if (_audioUnlocked) return;
+  _audioUnlocked = true;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = ctx.createBuffer(1, 1, 22050);
+    const src = ctx.createBufferSource();
+    src.buffer = buf; src.connect(ctx.destination); src.start(0);
+    setTimeout(() => ctx.close().catch(() => {}), 500);
+  } catch(_) {}
+  try { const a = new Audio(); a.play().catch(() => {}); } catch(_) {}
+}
+document.addEventListener('touchstart', _unlockAudio, {passive: true});
+document.addEventListener('click', _unlockAudio, {passive: true});
+
 function _stopAllSpeech() {
   if (_currentAudio) { try { _currentAudio.pause(); } catch(_){} _currentAudio = null; }
   if ('speechSynthesis' in window) speechSynthesis.cancel();
@@ -1151,6 +1177,7 @@ async function doSend() {
     if (!fullText) throw new Error('Leere Antwort vom Server — bitte erneut versuchen.');
 
     rmTyping();
+    _recheckTTS(); // server is now awake — activate TTS if it wasn't available at page load
     const ab = addAI(inn2, '', null, routedTo, null, agent);
     await typeOut(ab, fullText);
     // Update speak button with the full text (addAI was called with empty string)
@@ -1540,16 +1567,21 @@ function enterVoice() {
     save(); renderHist();
   }
   // Trigger voice list load on iOS
-  if (speechSynthesis.getVoices().length === 0) {
+  if ('speechSynthesis' in window && speechSynthesis.getVoices().length === 0) {
     try { speechSynthesis.speak(new SpeechSynthesisUtterance('')); } catch(_){}
   }
-  // Pre-warm Render server (cold start can take ~50s)
-  fetch(HEALTH).catch(()=>{});
+  // Pre-warm Render server and recheck TTS (cold start can take ~50s)
+  fetch(HEALTH).then(() => _recheckTTS()).catch(()=>{});
+  // Keep-alive ping every 10 min so Render doesn't sleep during voice sessions
+  _voiceKeepAlive = setInterval(() => { if (voiceMode) fetch(HEALTH).catch(()=>{}); }, 600000);
   startVoiceListen();
 }
 
+let _voiceKeepAlive = null;
+
 function exitVoice() {
   voiceMode = false;
+  clearInterval(_voiceKeepAlive); _voiceKeepAlive = null;
   document.getElementById('voiceOverlay').classList.remove('show');
   if (voiceRec) { try { voiceRec.abort(); } catch(_){} voiceRec = null; }
   if (_currentAudio) { try { _currentAudio.pause(); } catch(_){} _currentAudio = null; }
