@@ -265,6 +265,51 @@ async def _route_with_agent(user_text: str) -> str:
     return "cytonix-1.3"
 
 
+_AGENT_ANALYZE_SYSTEM = (
+    "Du bist ein Analyse-Agent. Lies die Anfrage und antworte NUR mit einem JSON-Objekt.\n"
+    'Format: {"model":"1.1"|"1.2"|"1.3","web":true|false,"calc":true|false}\n'
+    "model 1.1 → Smalltalk, Begrüßungen, ganz einfache Fragen\n"
+    "model 1.2 → Mathe, Logik, Rätsel, schrittweises Denken, Reasoning\n"
+    "model 1.3 → Code, Texte schreiben, komplexe Erklärungen (Standard)\n"
+    "web true  → aktuelle Infos nötig (News, Preise, heute, 2025, 2026, Wetter, wer ist gerade…)\n"
+    "calc true → einfache Rechnung erkennbar (Zahlen + Operatoren)\n"
+    "Antworte AUSSCHLIESSLICH mit dem JSON, kein anderer Text."
+)
+
+
+async def _agent_analyze(user_text: str) -> dict:
+    """Fast multi-agent analysis: picks best model + auto-activates tools."""
+    if not user_text or not GROQ_API_KEY:
+        return {"model": "cytonix-1.3", "web": False, "calc": False}
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.post(
+                GROQ_URL,
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+                json={
+                    "model": "llama-3.1-8b-instant",
+                    "messages": [
+                        {"role": "system", "content": _AGENT_ANALYZE_SYSTEM},
+                        {"role": "user", "content": user_text[:400]},
+                    ],
+                    "stream": False,
+                    "max_tokens": 60,
+                    "temperature": 0,
+                },
+            )
+            r.raise_for_status()
+            raw = r.json()["choices"][0]["message"]["content"].strip()
+            m = re.search(r"\{[^}]+\}", raw)
+            if m:
+                d = json.loads(m.group())
+                num = str(d.get("model", "1.3"))
+                mk = f"cytonix-{num}" if num in ("1.1", "1.2", "1.3") else "cytonix-1.3"
+                return {"model": mk, "web": bool(d.get("web", False)), "calc": bool(d.get("calc", False))}
+    except Exception:
+        pass
+    return {"model": "cytonix-1.3", "web": False, "calc": False}
+
+
 @app.get("/api/config")
 async def api_config():
     """Public endpoint — returns frontend config (Google client ID for login)."""
@@ -708,28 +753,39 @@ async def chat_stream(req: ChatRequest):
 
 @app.post("/api/chat", response_model=ChatResponse, dependencies=[Depends(_auth_check)])
 async def chat(req: ChatRequest):
-    if _is_blocked(_last_user_text(req.messages)):
+    user_text = _last_user_text(req.messages)
+    if _is_blocked(user_text):
         return ChatResponse(reply=BLOCKED_REPLY, model="safety-filter", provider=PROVIDER)
     use_vision = _has_image(req.messages)
 
-    # Auto mode: a small router agent picks the best specialist before answering.
     requested = (req.model or "").lower()
     routed_to: Optional[str] = None
     effective_model = req.model
-    if requested == "cytonix-auto" and not use_vision and PROVIDER == "groq":
-        routed_to = await _route_with_agent(_last_user_text(req.messages))
-        effective_model = routed_to
+    flags = req.tools if req.tools else ToolFlags()
+
+    if not use_vision and PROVIDER == "groq":
+        # Multi-agent analysis: fast model picks best specialist + auto-activates tools
+        analysis = await _agent_analyze(user_text)
+
+        if requested in ("cytonix-auto", ""):
+            # No explicit model chosen → agent decides
+            effective_model = analysis["model"]
+            routed_to = effective_model
+        # else: user explicitly chose a model → respect it
+
+        # Merge agent's tool recommendations with user's manual settings
+        flags.web  = flags.web  or analysis["web"]
+        flags.calc = flags.calc or analysis["calc"]
 
     cytonix_id, groq_model = _resolve_model(effective_model, use_vision)
 
-    # Run enabled tools (Web-Suche etc.) and collect context for the LLM
+    # Run tools and collect context
     tool_context = ""
-    flags = req.tools
-    if flags and any([flags.web, flags.weather, flags.calc]):
-        _, tool_context = await _run_tools(_last_user_text(req.messages), flags)
+    if any([flags.web, flags.weather, flags.calc]):
+        _, tool_context = await _run_tools(user_text, flags)
 
     sys_prompt = SYSTEM_PROMPT
-    if flags and flags.translate:
+    if flags.translate:
         sys_prompt += (
             "\n\nÜbersetzer-Modus aktiv: Wenn der Nutzer einen Text in eine andere Sprache "
             "übersetzen will, antworte nur mit der Übersetzung — keine Erklärungen, "
