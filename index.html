@@ -1522,7 +1522,8 @@ function setVoiceState(state, statusMsg, transcript) {
 function enterVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { alert('Spracheingabe wird von deinem Browser nicht unterstützt. Probier Chrome.'); return; }
-  if (!('speechSynthesis' in window)) { alert('Vorlese-Funktion nicht unterstützt.'); return; }
+  // Only block if neither ElevenLabs nor browser TTS is available
+  if (!_ttsAvailable && !('speechSynthesis' in window)) { alert('Vorlese-Funktion nicht unterstützt.'); return; }
 
   voiceMode = true;
   voiceMuted = false;
