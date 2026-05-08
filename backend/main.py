@@ -38,7 +38,7 @@ CYTONIX_MODELS = {
         "description": "Schnell – ideal für kurze Antworten",
     },
     "cytonix-1.2": {
-        "groq_id": "deepseek-r1-distill-llama-70b",
+        "groq_id": "openai/gpt-oss-120b",
         "label": "Cytonix 1.2",
         "description": "Reasoning – logisches Denken",
     },
