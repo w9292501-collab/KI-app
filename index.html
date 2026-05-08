@@ -4,6 +4,13 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Cytonix</title>
+<link rel="manifest" href="/manifest.json"/>
+<meta name="theme-color" content="#7c6dfa"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Cytonix"/>
+<link rel="apple-touch-icon" href="/icons/icon-192.png"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
 <script src="https://accounts.google.com/gsi/client" async></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -285,6 +292,13 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 .login-note{font-size:.68rem;color:var(--mu);line-height:1.65;max-width:260px}
 .login-err{font-size:.78rem;color:var(--re);background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.2);border-radius:10px;padding:10px 14px;display:none;max-width:280px;line-height:1.5}
 .login-err.show{display:block}
+
+/* PWA install banner */
+.install-banner{position:fixed;bottom:86px;left:50%;transform:translateX(-50%);background:var(--ac);color:#fff;padding:11px 16px;border-radius:14px;display:none;align-items:center;gap:10px;z-index:500;box-shadow:0 6px 24px rgba(124,109,250,.45);font-size:.82rem;font-weight:500;white-space:nowrap;animation:mIn .3s ease}
+.install-banner.show{display:flex}
+.install-banner-btn{background:rgba(255,255,255,.22);border:none;color:#fff;padding:5px 13px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:.8rem;font-weight:600}
+.install-banner-btn:hover{background:rgba(255,255,255,.32)}
+.install-banner-x{background:none;border:none;color:rgba(255,255,255,.7);cursor:pointer;font-size:1rem;padding:0 2px;line-height:1}
 </style>
 </head>
 <body>
@@ -423,6 +437,13 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
       </button>
     </div>
   </div>
+</div>
+
+<!-- PWA Install Banner -->
+<div class="install-banner" id="installBanner">
+  <span>📲 Cytonix als App installieren</span>
+  <button class="install-banner-btn" onclick="installApp()">Installieren</button>
+  <button class="install-banner-x" onclick="document.getElementById('installBanner').classList.remove('show')">✕</button>
 </div>
 
 <!-- Google Login Overlay -->
@@ -1659,6 +1680,36 @@ function initApp() {
   checkHealth();
   setInterval(checkHealth, 15000);
 }
+
+// ─── PWA ──────────────────────────────────────────────────────────────────────
+let _installPrompt = null;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  _installPrompt = e;
+  document.getElementById('installBanner').classList.add('show');
+});
+
+window.addEventListener('appinstalled', () => {
+  document.getElementById('installBanner').classList.remove('show');
+  _installPrompt = null;
+});
+
+function installApp() {
+  if (!_installPrompt) return;
+  _installPrompt.prompt();
+  _installPrompt.userChoice.then(() => {
+    _installPrompt = null;
+    document.getElementById('installBanner').classList.remove('show');
+  });
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+// ─── End PWA ──────────────────────────────────────────────────────────────────
 
 initAuth();
 </script>

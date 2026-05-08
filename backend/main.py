@@ -768,4 +768,23 @@ if (PROJECT_ROOT / "index.html").exists():
     async def root():
         return FileResponse(PROJECT_ROOT / "index.html")
 
+    @app.get("/manifest.json")
+    async def manifest():
+        return FileResponse(PROJECT_ROOT / "manifest.json", media_type="application/manifest+json")
+
+    @app.get("/sw.js")
+    async def service_worker():
+        return FileResponse(
+            PROJECT_ROOT / "sw.js",
+            media_type="application/javascript",
+            headers={"Service-Worker-Allowed": "/"},
+        )
+
+    @app.get("/icons/{filename}")
+    async def icons(filename: str):
+        p = PROJECT_ROOT / "icons" / filename
+        if not p.exists() or not p.is_file():
+            raise HTTPException(status_code=404)
+        return FileResponse(p)
+
     app.mount("/static", StaticFiles(directory=PROJECT_ROOT), name="static")
