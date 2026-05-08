@@ -722,7 +722,23 @@ async def chat(req: ChatRequest):
 
     cytonix_id, groq_model = _resolve_model(effective_model, use_vision)
 
-    payload = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # Run enabled tools (Web-Suche etc.) and collect context for the LLM
+    tool_context = ""
+    flags = req.tools
+    if flags and any([flags.web, flags.weather, flags.calc]):
+        _, tool_context = await _run_tools(_last_user_text(req.messages), flags)
+
+    sys_prompt = SYSTEM_PROMPT
+    if flags and flags.translate:
+        sys_prompt += (
+            "\n\nÜbersetzer-Modus aktiv: Wenn der Nutzer einen Text in eine andere Sprache "
+            "übersetzen will, antworte nur mit der Übersetzung — keine Erklärungen, "
+            "kein Vor- oder Nachtext, außer er fragt explizit danach."
+        )
+    if tool_context:
+        sys_prompt += "\n\n" + tool_context
+
+    payload = [{"role": "system", "content": sys_prompt}]
     for m in req.messages:
         payload.append({"role": m.role, "content": m.content})
 

@@ -1019,7 +1019,11 @@ async function doSend() {
       signal: abortCtrl.signal,
       method: 'POST',
       headers: {'Content-Type':'application/json', ...getAuthHeaders()},
-      body: JSON.stringify({ messages: apiMessages, model: deepThink ? 'cytonix-1.2' : currentModel })
+      body: JSON.stringify({
+        messages: apiMessages,
+        model: deepThink ? 'cytonix-1.2' : currentModel,
+        tools: { web: !!activeTools.web }
+      })
     });
     clearTimeout(wakeHint);
     resetIdleTimeout(60000);
@@ -1558,7 +1562,11 @@ async function voiceProcessText(text) {
       signal: voiceAbort.signal,
       method: 'POST',
       headers: {'Content-Type':'application/json', ...getAuthHeaders()},
-      body: JSON.stringify({ messages: outbound, model: currentModel })
+      body: JSON.stringify({
+        messages: outbound,
+        model: currentModel,
+        tools: { web: !!activeTools.web }
+      })
     });
     clearTimeout(slowHint); clearTimeout(voiceAbortTimer);
     if (res.status === 401 || res.status === 403) {
