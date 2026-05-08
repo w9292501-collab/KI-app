@@ -877,6 +877,22 @@ function toggleMic() {
 // TEXT-TO-SPEECH
 let currentSpeakBtn = null;
 
+function _doSpeak(text, btn) {
+  speechSynthesis.cancel();
+  document.querySelectorAll('.speak-btn.playing').forEach(b => b.classList.remove('playing'));
+  const clean = text.replace(/```[\s\S]*?```/g, ' Codeblock. ').replace(/[*#`_~]/g, '');
+  const u = new SpeechSynthesisUtterance(clean);
+  u.lang = 'de-DE';
+  const voices = speechSynthesis.getVoices();
+  const de = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('de'));
+  if (de) u.voice = de;
+  u.onend  = () => { btn.classList.remove('playing'); if (currentSpeakBtn===btn) currentSpeakBtn=null; };
+  u.onerror = () => { btn.classList.remove('playing'); if (currentSpeakBtn===btn) currentSpeakBtn=null; };
+  currentSpeakBtn = btn;
+  btn.classList.add('playing');
+  speechSynthesis.speak(u);
+}
+
 function speak(text, btn) {
   if (!('speechSynthesis' in window)) {
     alert('Vorlese-Funktion wird von deinem Browser nicht unterstützt.');
@@ -888,19 +904,16 @@ function speak(text, btn) {
     currentSpeakBtn = null;
     return;
   }
-  speechSynthesis.cancel();
-  document.querySelectorAll('.speak-btn.playing').forEach(b => b.classList.remove('playing'));
-  const clean = text.replace(/```[\s\S]*?```/g, ' Codeblock. ').replace(/[*#`_~]/g, '');
-  const u = new SpeechSynthesisUtterance(clean);
-  u.lang = 'de-DE';
+  // Voices may not be loaded yet on first call — wait for them
   const voices = speechSynthesis.getVoices();
-  const de = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('de'));
-  if (de) u.voice = de;
-  u.onend = () => { btn.classList.remove('playing'); if (currentSpeakBtn===btn) currentSpeakBtn=null; };
-  u.onerror = () => { btn.classList.remove('playing'); if (currentSpeakBtn===btn) currentSpeakBtn=null; };
-  currentSpeakBtn = btn;
-  btn.classList.add('playing');
-  speechSynthesis.speak(u);
+  if (voices.length === 0) {
+    speechSynthesis.onvoiceschanged = () => { speechSynthesis.onvoiceschanged = null; _doSpeak(text, btn); };
+    // Trigger loading on some browsers
+    speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+    speechSynthesis.cancel();
+  } else {
+    _doSpeak(text, btn);
+  }
 }
 
 function speakMsg(btn) {
@@ -1079,6 +1092,9 @@ async function doSend() {
     rmTyping();
     const ab = addAI(inn2, '', null, routedTo, null);
     await typeOut(ab, fullText);
+    // Update speak button with the full text (addAI was called with empty string)
+    const speakBtn = ab.closest('.ai-c')?.querySelector('.speak-btn');
+    if (speakBtn) speakBtn.setAttribute('data-tts', fullText);
     c.messages.push({role:'assistant', content: fullText, routed_to: routedTo});
     save();
 
