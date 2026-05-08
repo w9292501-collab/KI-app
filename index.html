@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Cytonix</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://accounts.google.com/gsi/client" async></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
 <style>
@@ -272,6 +273,18 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
   .tb-title{font-size:.78rem}
   .model-pick{padding:5px 7px;font-size:.7rem}
 }
+
+/* Login overlay */
+.login-overlay{position:fixed;inset:0;z-index:2000;background:var(--bg);display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+.login-overlay.show{display:flex;animation:mIn .3s ease}
+.login-card{background:var(--s1);border:1px solid var(--b1);border-radius:20px;padding:44px 38px;display:flex;flex-direction:column;align-items:center;gap:22px;max-width:360px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.login-logo{width:56px;height:56px;border-radius:15px;background:linear-gradient(135deg,var(--ac),#a78bfa);display:flex;align-items:center;justify-content:center;font-size:.85rem;font-weight:700;color:#fff;flex-shrink:0;box-shadow:0 8px 24px rgba(124,109,250,.4)}
+.login-title{font-size:1.55rem;font-weight:700;letter-spacing:-.04em}
+.login-sub{font-size:.85rem;color:var(--t2);line-height:1.6;max-width:260px}
+.login-btn-wrap{display:flex;justify-content:center;min-height:44px}
+.login-note{font-size:.68rem;color:var(--mu);line-height:1.65;max-width:260px}
+.login-err{font-size:.78rem;color:var(--re);background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.2);border-radius:10px;padding:10px 14px;display:none;max-width:280px;line-height:1.5}
+.login-err.show{display:block}
 </style>
 </head>
 <body>
@@ -412,11 +425,105 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
   </div>
 </div>
 
+<!-- Google Login Overlay -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div class="login-logo">CY</div>
+    <h1 class="login-title">Cytonix</h1>
+    <p class="login-sub">Melde dich mit deinem Google-Konto an, um fortzufahren.</p>
+    <div class="login-btn-wrap" id="googleSignInBtn"></div>
+    <div class="login-err" id="loginErr"></div>
+    <p class="login-note">Nur autorisierte Konten haben Zugriff auf Cytonix.</p>
+  </div>
+</div>
+
 <script>
 const API_BASE   = (location.protocol === 'file:') ? 'http://localhost:8000' : '';
 const API_URL    = API_BASE + '/api/chat';
 const API_STREAM = API_BASE + '/api/chat/stream';
 const HEALTH     = API_BASE + '/api/health';
+const CONFIG_URL = API_BASE + '/api/config';
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+let _authToken = null;
+
+function _parseJwt(token) {
+  try {
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(b64));
+  } catch { return null; }
+}
+
+function getAuthHeaders() {
+  const t = _authToken || localStorage.getItem('cytonix_auth_token');
+  return t ? { 'Authorization': 'Bearer ' + t } : {};
+}
+
+function _saveToken(token) {
+  _authToken = token;
+  localStorage.setItem('cytonix_auth_token', token);
+  const p = _parseJwt(token);
+  if (p && p.exp) localStorage.setItem('cytonix_auth_exp', p.exp.toString());
+}
+
+function _clearToken() {
+  _authToken = null;
+  localStorage.removeItem('cytonix_auth_token');
+  localStorage.removeItem('cytonix_auth_exp');
+}
+
+function _isTokenValid() {
+  const token = localStorage.getItem('cytonix_auth_token');
+  const exp   = parseInt(localStorage.getItem('cytonix_auth_exp') || '0');
+  if (!token) return false;
+  return exp > Date.now() / 1000 + 120;
+}
+
+function handleCredentialResponse(response) {
+  _saveToken(response.credential);
+  document.getElementById('loginOverlay').classList.remove('show');
+  initApp();
+}
+
+function _initGoogleButton(clientId) {
+  const tryRender = () => {
+    if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
+      google.accounts.id.initialize({ client_id: clientId, callback: handleCredentialResponse });
+      google.accounts.id.renderButton(
+        document.getElementById('googleSignInBtn'),
+        { theme: 'filled_black', size: 'large', text: 'signin_with', locale: 'de', shape: 'rectangular' }
+      );
+      google.accounts.id.prompt();
+    } else {
+      setTimeout(tryRender, 150);
+    }
+  };
+  tryRender();
+}
+
+async function initAuth() {
+  let cfg = { auth_required: false };
+  try {
+    const r = await fetch(CONFIG_URL, { signal: AbortSignal.timeout(8000) });
+    if (r.ok) cfg = await r.json();
+  } catch (_) {}
+
+  if (!cfg.auth_required) {
+    initApp();
+    return;
+  }
+
+  if (_isTokenValid()) {
+    _authToken = localStorage.getItem('cytonix_auth_token');
+    initApp();
+    return;
+  }
+
+  _clearToken();
+  document.getElementById('loginOverlay').classList.add('show');
+  _initGoogleButton(cfg.google_client_id);
+}
+// ─── End Auth ─────────────────────────────────────────────────────────────────
 
 let chats        = JSON.parse(localStorage.getItem('cytonix_chats')||'[]');
 let cur          = null;
@@ -925,11 +1032,20 @@ async function doSend() {
     const res = await fetch(API_URL, {
       signal: abortCtrl.signal,
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ messages: apiMessages, model: deepThink ? 'cytonix-1.2' : currentModel })
+      headers: {'Content-Type':'application/json', ...getAuthHeaders()},
+      body: JSON.stringify({
+        messages: apiMessages,
+        model: deepThink ? 'cytonix-1.2' : currentModel,
+        tools: { web: !!activeTools.web }
+      })
     });
     clearTimeout(wakeHint);
     resetIdleTimeout(60000);
+    if (res.status === 401 || res.status === 403) {
+      _clearToken();
+      location.reload();
+      return;
+    }
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(parseErr(errText) || `HTTP ${res.status}`);
@@ -1460,10 +1576,20 @@ async function voiceProcessText(text) {
     const res = await fetch(API_URL, {
       signal: voiceAbort.signal,
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ messages: outbound, model: currentModel })
+      headers: {'Content-Type':'application/json', ...getAuthHeaders()},
+      body: JSON.stringify({
+        messages: outbound,
+        model: currentModel,
+        tools: { web: !!activeTools.web }
+      })
     });
     clearTimeout(slowHint); clearTimeout(voiceAbortTimer);
+    if (res.status === 401 || res.status === 403) {
+      _clearToken();
+      exitVoice();
+      location.reload();
+      return;
+    }
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(parseErr(errText) || `HTTP ${res.status}`);
@@ -1525,12 +1651,16 @@ function voiceSpeak(text) {
   speechSynthesis.speak(u);
 }
 
-setModelLabel();
-applyToolStates();
-renderWelcome();
-renderHist();
-checkHealth();
-setInterval(checkHealth, 15000);
+function initApp() {
+  setModelLabel();
+  applyToolStates();
+  renderWelcome();
+  renderHist();
+  checkHealth();
+  setInterval(checkHealth, 15000);
+}
+
+initAuth();
 </script>
 </body>
 </html>
