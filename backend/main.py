@@ -356,6 +356,7 @@ async def api_config():
 
 class TTSRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=5000)
+    voice_id: Optional[str] = None  # override env default from frontend settings
 
 
 @app.post("/api/tts", dependencies=[Depends(_auth_check)])
@@ -363,6 +364,7 @@ async def tts(req: TTSRequest):
     """Server-side TTS via ElevenLabs — returns MP3 audio."""
     if not ELEVENLABS_API_KEY:
         raise HTTPException(status_code=503, detail="TTS nicht konfiguriert (ELEVENLABS_API_KEY fehlt).")
+    voice = (req.voice_id or "").strip() or ELEVENLABS_VOICE_ID
 
     # Strip markdown for cleaner speech
     text = req.text.strip()
@@ -376,7 +378,7 @@ async def tts(req: TTSRequest):
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
             r = await client.post(
-                f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice}",
                 headers={
                     "xi-api-key": ELEVENLABS_API_KEY,
                     "Content-Type": "application/json",

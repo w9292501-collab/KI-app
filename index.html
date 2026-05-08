@@ -382,6 +382,16 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
         <div class="mm-tool-text"><div class="mm-tool-name">Länger nachdenken</div><div class="mm-tool-desc">Schaltet auf Reasoning-Modus für schwierige Aufgaben</div></div>
         <input type="checkbox" id="tool-deepthink" class="mm-toggle" onchange="setDeepThink(this.checked)">
       </label>
+      <div class="mm-divider"></div>
+      <div class="mm-section-label">Stimme (ElevenLabs)</div>
+      <div style="padding:6px 12px 10px">
+        <input id="voiceIdInput" type="text" placeholder="Voice ID eingeben…"
+          style="width:100%;background:var(--bg);border:1px solid var(--b1);border-radius:8px;padding:7px 10px;color:var(--t1);font-family:inherit;font-size:.75rem;outline:none"
+          oninput="localStorage.setItem('cytonix_voice_id',this.value.trim())"
+          onfocus="this.style.borderColor='rgba(124,109,250,.5)'"
+          onblur="this.style.borderColor='var(--b1)'"/>
+        <div style="font-size:.65rem;color:var(--mu);margin-top:5px">Voice ID von elevenlabs.io → Voices → deine Stimme → ID kopieren</div>
+      </div>
     </div>
 
     <div id="msgs"></div>
@@ -593,6 +603,8 @@ function applyToolStates() {
   if (el) el.checked = !!activeTools.web;
   const dt = document.getElementById('tool-deepthink');
   if (dt) dt.checked = deepThink;
+  const vi = document.getElementById('voiceIdInput');
+  if (vi) vi.value = localStorage.getItem('cytonix_voice_id') || '';
 }
 
 const MODEL_LABELS = {
@@ -616,7 +628,9 @@ function closeMob() {
   document.getElementById('ovl').classList.remove('show');
 }
 
-function save() { localStorage.setItem('cytonix_chats', JSON.stringify(chats)); }
+function save() {
+  localStorage.setItem('cytonix_chats', JSON.stringify(chats));
+}
 
 function newChat() {
   const id = Date.now().toString();
@@ -931,35 +945,49 @@ function _stopAllSpeech() {
 }
 
 async function _serverTTS(text, btn) {
+  if (!text) return;
   _stopAllSpeech();
   btn.classList.add('loading');
   currentSpeakBtn = btn;
   try {
+    const voiceId = localStorage.getItem('cytonix_voice_id') || '';
     const res = await fetch(TTS_URL, {
       method: 'POST',
       headers: {'Content-Type':'application/json', ...getAuthHeaders()},
-      body: JSON.stringify({text})
+      body: JSON.stringify({text, voice_id: voiceId})
     });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (res.status === 503) {
+      // ElevenLabs not configured — fall back silently to browser TTS
+      btn.classList.remove('loading'); currentSpeakBtn = null;
+      _doSpeak(text, btn); return;
+    }
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || 'HTTP ' + res.status);
+    }
+    _ttsAvailable = true; // confirm server TTS is working
     const blob = await res.blob();
     const url  = URL.createObjectURL(blob);
     const audio = new Audio(url);
     _currentAudio = audio;
     btn.classList.remove('loading');
     btn.classList.add('playing');
-    audio.onended = () => {
+    const cleanup = () => {
       btn.classList.remove('playing');
       URL.revokeObjectURL(url);
       if (currentSpeakBtn === btn) currentSpeakBtn = null;
       if (_currentAudio === audio) _currentAudio = null;
     };
-    audio.onerror = audio.onended;
-    await audio.play();
+    audio.onended = cleanup;
+    audio.onerror = () => { cleanup(); _showToast('Audio konnte nicht abgespielt werden.'); };
+    audio.play().catch(() => {
+      cleanup();
+      _showToast('Autoplay blockiert — bitte nochmal tippen.');
+    });
   } catch (e) {
-    btn.classList.remove('loading');
-    currentSpeakBtn = null;
-    // Fallback to browser TTS
-    if ('speechSynthesis' in window) _doSpeak(text, btn);
+    btn.classList.remove('loading'); currentSpeakBtn = null;
+    _showToast('Stimme: ' + (e.message || 'Fehler'));
+    _doSpeak(text, btn);
   }
 }
 
@@ -985,12 +1013,13 @@ function speak(text, btn) {
     currentSpeakBtn = null;
     return;
   }
-  if (_ttsAvailable) {
-    _serverTTS(text, btn);
-    return;
-  }
+  // Always try server TTS first — handles case where config wasn't loaded at page start
+  _serverTTS(text, btn);
+}
+
+function _speakBrowserFallback(text, btn) {
   if (!('speechSynthesis' in window)) {
-    alert('Vorlese-Funktion wird von deinem Browser nicht unterstützt.');
+    _showToast('Keine Stimme verfügbar. Bitte ElevenLabs API Key in Render setzen.');
     return;
   }
   const voices = speechSynthesis.getVoices();
@@ -1765,47 +1794,39 @@ async function voiceProcessText(text) {
 }
 
 async function voiceSpeak(text) {
-  // Stop any previous audio
   if (_currentAudio) { try { _currentAudio.pause(); } catch(_){} _currentAudio = null; }
   if ('speechSynthesis' in window) speechSynthesis.cancel();
 
+  let done = false;
   const onDone = () => {
+    if (done) return; done = true;
+    clearTimeout(_voiceSafetyT);
     if (voiceMode && !voiceMuted) setTimeout(startVoiceListen, 250);
     else if (voiceMode) setVoiceState(null, 'Mikro stumm – tippe um wieder zuzuhören', '');
   };
+  let _voiceSafetyT = setTimeout(onDone, 60000);
 
-  // Try server TTS first (ElevenLabs)
-  if (_ttsAvailable) {
-    try {
-      const res = await fetch(TTS_URL, {
-        method: 'POST',
-        headers: {'Content-Type':'application/json', ...getAuthHeaders()},
-        body: JSON.stringify({text})
-      });
-      if (res.ok) {
-        const blob = await res.blob();
-        const url  = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        _currentAudio = audio;
-        audio.onended = () => { URL.revokeObjectURL(url); if (_currentAudio===audio) _currentAudio = null; onDone(); };
-        audio.onerror = audio.onended;
-        await audio.play();
-        return;
-      }
-    } catch(_) { /* fall through */ }
-  }
+  try {
+    const voiceId = localStorage.getItem('cytonix_voice_id') || '';
+    const res = await fetch(TTS_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', ...getAuthHeaders()},
+      body: JSON.stringify({text, voice_id: voiceId})
+    });
+    if (res.ok) {
+      _ttsAvailable = true;
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      _currentAudio = audio;
+      audio.onended = () => { URL.revokeObjectURL(url); if (_currentAudio===audio) _currentAudio=null; onDone(); };
+      audio.onerror = audio.onended;
+      audio.play().catch(onDone);
+      return;
+    }
+  } catch(_) { /* fall through to browser TTS */ }
 
-  // Browser TTS fallback
-  if (!('speechSynthesis' in window)) { onDone(); return; }
-  const clean = text.replace(/```[\s\S]*?```/g, ' Codeblock. ').replace(/[*#`_~]/g, '');
-  const u = new SpeechSynthesisUtterance(clean);
-  u.lang = 'de-DE';
-  const voices = speechSynthesis.getVoices();
-  const de = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('de'));
-  if (de) u.voice = de;
-  u.onend   = onDone;
-  u.onerror = onDone;
-  speechSynthesis.speak(u);
+  _browserVoiceSpeak(text, onDone);
 }
 
 function initApp() {
