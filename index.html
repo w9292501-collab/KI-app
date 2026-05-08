@@ -329,7 +329,10 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
         Neuer Ordner
       </button>
     </div>
-    <div class="sb-label">Verlauf</div>
+    <div class="sb-label" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Verlauf</span>
+      <span id="chatCount" style="font-size:.65rem;color:var(--mu);font-weight:400"></span>
+    </div>
     <div class="hist" id="hist">
       <div class="sb-empty" id="hempty">Noch keine Gespräche</div>
     </div>
@@ -392,6 +395,8 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
           onblur="this.style.borderColor='var(--b1)'"/>
         <div style="font-size:.65rem;color:var(--mu);margin-top:5px">Voice ID von elevenlabs.io → Voices → deine Stimme → ID kopieren</div>
       </div>
+      <div class="mm-divider"></div>
+      <button class="mm-item" style="width:100%;text-align:left;background:none;border:none;cursor:pointer;color:var(--t2);font-family:inherit;font-size:.78rem" onclick="hardReload()">🔄 App neu laden (Cache leeren)</button>
     </div>
 
     <div id="msgs"></div>
@@ -629,7 +634,13 @@ function closeMob() {
 }
 
 function save() {
-  localStorage.setItem('cytonix_chats', JSON.stringify(chats));
+  try {
+    localStorage.setItem('cytonix_chats', JSON.stringify(chats));
+    const el = document.getElementById('chatCount');
+    if (el) el.textContent = chats.length ? chats.length + ' gespeichert' : '';
+  } catch(e) {
+    _showToast('Chat konnte nicht gespeichert werden: ' + e.message);
+  }
 }
 
 function newChat() {
@@ -733,6 +744,8 @@ function renderHist() {
   const em = document.getElementById('hempty');
   h.innerHTML = '';
   const q = (document.getElementById('chatSearch')?.value || '').trim();
+  const ccEl = document.getElementById('chatCount');
+  if (ccEl) ccEl.textContent = chats.length ? chats.length + ' gespeichert' : '';
   const filtered = chats.filter(c => chatMatchesQuery(c, q));
   if (!filtered.length && !folders.length) {
     h.appendChild(em); em.style.display = ''; em.textContent = q ? 'Keine Treffer' : 'Noch keine Gespräche';
@@ -812,7 +825,9 @@ function addAI(inn, text, imgUrl, routedTo, imgPrompt, agent) {
   const agentTag = (typeof agent === 'string' && AGENT_LABELS[agent]) ? ` <span class="agent-tag">${AGENT_LABELS[agent]}</span>` : '';
   el.innerHTML=`<div class="ava">CY</div><div class="ai-c"><div class="ai-lbl">Cytonix${routedBadge}${agentTag}</div><div class="ab">${md(text)}</div>${imgHtml}<button class="speak-btn" onclick="speakMsg(this)" data-tts="${ttsAttr}" title="Vorlesen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button></div>`;
   inn.appendChild(el); scrollBot();
-  return el.querySelector('.ab');
+  const ab = el.querySelector('.ab');
+  ab._speakBtn = el.querySelector('.speak-btn'); // direct reference — no DOM traversal needed
+  return ab;
 }
 function addTyping(inn) {
   const el=document.createElement('div'); el.className='ma-row'; el.id='typr';
@@ -1206,12 +1221,10 @@ async function doSend() {
     if (!fullText) throw new Error('Leere Antwort vom Server — bitte erneut versuchen.');
 
     rmTyping();
-    _recheckTTS(); // server is now awake — activate TTS if it wasn't available at page load
+    _recheckTTS();
     const ab = addAI(inn2, '', null, routedTo, null, agent);
     await typeOut(ab, fullText);
-    // Update speak button with the full text (addAI was called with empty string)
-    const speakBtn = ab.closest('.ai-c')?.querySelector('.speak-btn');
-    if (speakBtn) speakBtn.setAttribute('data-tts', fullText);
+    if (ab._speakBtn) ab._speakBtn.setAttribute('data-tts', fullText); // set after typeOut
     c.messages.push({role:'assistant', content: fullText, routed_to: routedTo, agent});
     save();
 
@@ -1836,6 +1849,14 @@ function initApp() {
   renderHist();
   checkHealth();
   setInterval(checkHealth, 15000);
+}
+
+async function hardReload() {
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => caches.delete(k)));
+  } catch(_) {}
+  location.reload(true);
 }
 
 // ─── PWA ──────────────────────────────────────────────────────────────────────
