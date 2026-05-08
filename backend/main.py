@@ -12,7 +12,7 @@ from typing import Any, AsyncGenerator, List, Literal, Optional
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -30,6 +30,10 @@ GROQ_VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 ALLOWED_EMAIL = os.getenv("ALLOWED_EMAIL", "")  # comma-separated list of allowed Google emails
+
+ELEVENLABS_API_KEY  = os.getenv("ELEVENLABS_API_KEY", "")
+ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Rachel default
+ELEVENLABS_MODEL    = os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2")
 
 CYTONIX_MODELS = {
     "cytonix-1.1": {
@@ -196,6 +200,7 @@ class ChatResponse(BaseModel):
     model: str
     provider: str
     routed_to: Optional[str] = None  # set when Auto mode picked a specialist
+    agent: Optional[str] = None      # 'code' | 'chat' | 'image'
 
 
 def _has_image(messages: List[Message]) -> bool:
@@ -266,21 +271,23 @@ async def _route_with_agent(user_text: str) -> str:
 
 
 _AGENT_ANALYZE_SYSTEM = (
-    "Du bist ein Analyse-Agent. Lies die Anfrage und antworte NUR mit einem JSON-Objekt.\n"
-    'Format: {"model":"1.1"|"1.2"|"1.3","web":true|false,"calc":true|false}\n'
-    "model 1.1 → Smalltalk, Begrüßungen, ganz einfache Fragen\n"
-    "model 1.2 → Mathe, Logik, Rätsel, schrittweises Denken, Reasoning\n"
-    "model 1.3 → Code, Texte schreiben, komplexe Erklärungen (Standard)\n"
+    "Du bist ein Routing-Agent. Lies die Anfrage und antworte NUR mit einem JSON-Objekt.\n"
+    'Format: {"agent":"code"|"chat"|"image","model":"1.1"|"1.2"|"1.3","web":true|false,"calc":true|false}\n'
+    "agent code  → Code schreiben/debuggen/erklären, Programmieraufgaben\n"
+    "agent image → Bild generieren oder Bild beschreiben\n"
+    "agent chat  → alles andere (Smalltalk, Fragen, Texte, Erklärungen)\n"
+    "model 1.1 → einfache Chat-Frage; 1.2 → Mathe/Logik/Reasoning; 1.3 → Code oder Komplexes (Standard)\n"
     "web true  → aktuelle Infos nötig (News, Preise, heute, 2025, 2026, Wetter, wer ist gerade…)\n"
-    "calc true → einfache Rechnung erkennbar (Zahlen + Operatoren)\n"
+    "calc true → reine Rechenaufgabe erkennbar\n"
     "Antworte AUSSCHLIESSLICH mit dem JSON, kein anderer Text."
 )
 
 
 async def _agent_analyze(user_text: str) -> dict:
-    """Fast multi-agent analysis: picks best model + auto-activates tools."""
+    """Multi-agent analysis: agent-type + best model + auto-tools."""
+    fallback = {"agent": "chat", "model": "cytonix-1.3", "web": False, "calc": False}
     if not user_text or not GROQ_API_KEY:
-        return {"model": "cytonix-1.3", "web": False, "calc": False}
+        return fallback
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.post(
@@ -293,7 +300,7 @@ async def _agent_analyze(user_text: str) -> dict:
                         {"role": "user", "content": user_text[:400]},
                     ],
                     "stream": False,
-                    "max_tokens": 60,
+                    "max_tokens": 80,
                     "temperature": 0,
                 },
             )
@@ -304,19 +311,99 @@ async def _agent_analyze(user_text: str) -> dict:
                 d = json.loads(m.group())
                 num = str(d.get("model", "1.3"))
                 mk = f"cytonix-{num}" if num in ("1.1", "1.2", "1.3") else "cytonix-1.3"
-                return {"model": mk, "web": bool(d.get("web", False)), "calc": bool(d.get("calc", False))}
+                ag = str(d.get("agent", "chat")).lower()
+                if ag not in ("code", "image", "chat"):
+                    ag = "chat"
+                return {
+                    "agent": ag,
+                    "model": mk,
+                    "web":  bool(d.get("web",  False)),
+                    "calc": bool(d.get("calc", False)),
+                }
     except Exception:
         pass
-    return {"model": "cytonix-1.3", "web": False, "calc": False}
+    return fallback
+
+
+SYSTEM_PROMPT_CODE = SYSTEM_PROMPT + (
+    "\n\n⚙️ CODER-AGENT aktiv: Du bist ein erfahrener Software-Entwickler. "
+    "Schreibe sauberen, gut kommentierten Code in Markdown-Codeblöcken mit Sprachangabe. "
+    "Erkläre die Lösung kurz vor dem Code. Achte auf Best Practices, Sicherheit und Lesbarkeit. "
+    "Bei Bug-Fixes: zeige den fehlerhaften Teil + die Korrektur."
+)
+
+SYSTEM_PROMPT_CHAT_AGENT = SYSTEM_PROMPT + (
+    "\n\n💬 CHAT-AGENT aktiv: Antworte freundlich, locker und kurz wie ein Gespräch unter Freunden. "
+    "Vermeide unnötig lange Listen oder formale Strukturen, außer der Nutzer fragt explizit danach."
+)
+
+SYSTEM_PROMPT_IMAGE_AGENT = SYSTEM_PROMPT + (
+    "\n\n🎨 BILD-AGENT aktiv: Wenn der Nutzer ein Bild generieren möchte, schlage 1–2 detaillierte "
+    "Bild-Prompts vor (auf Englisch, kreativ und spezifisch). Wenn ein Bild zur Analyse hochgeladen ist, "
+    "beschreibe was du siehst detailliert und strukturiert."
+)
 
 
 @app.get("/api/config")
 async def api_config():
-    """Public endpoint — returns frontend config (Google client ID for login)."""
+    """Public endpoint — returns frontend config (Google client ID + TTS availability)."""
     return {
         "google_client_id": GOOGLE_CLIENT_ID,
-        "auth_required": bool(GOOGLE_CLIENT_ID),
+        "auth_required":   bool(GOOGLE_CLIENT_ID),
+        "tts_available":   bool(ELEVENLABS_API_KEY),
     }
+
+
+class TTSRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=5000)
+
+
+@app.post("/api/tts", dependencies=[Depends(_auth_check)])
+async def tts(req: TTSRequest):
+    """Server-side TTS via ElevenLabs — returns MP3 audio."""
+    if not ELEVENLABS_API_KEY:
+        raise HTTPException(status_code=503, detail="TTS nicht konfiguriert (ELEVENLABS_API_KEY fehlt).")
+
+    # Strip markdown for cleaner speech
+    text = req.text.strip()
+    text = re.sub(r"```[\s\S]*?```", " Codeblock. ", text)
+    text = re.sub(r"[*#`_~]", "", text).strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Leerer Text.")
+    if len(text) > 4000:
+        text = text[:4000]
+
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            r = await client.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}",
+                headers={
+                    "xi-api-key": ELEVENLABS_API_KEY,
+                    "Content-Type": "application/json",
+                    "Accept": "audio/mpeg",
+                },
+                json={
+                    "text": text,
+                    "model_id": ELEVENLABS_MODEL,
+                    "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+                },
+            )
+            if r.status_code == 401:
+                raise HTTPException(status_code=401, detail="ElevenLabs API-Key ungültig.")
+            if r.status_code == 429:
+                raise HTTPException(status_code=429, detail="ElevenLabs Limit erreicht.")
+            r.raise_for_status()
+            audio = r.content
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"ElevenLabs Fehler: {e.response.text[:200]}")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="TTS Timeout.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TTS Backend-Fehler: {e}")
+
+    return Response(content=audio, media_type="audio/mpeg")
 
 
 @app.get("/api/models")
@@ -762,29 +849,34 @@ async def chat(req: ChatRequest):
     routed_to: Optional[str] = None
     effective_model = req.model
     flags = req.tools if req.tools else ToolFlags()
+    agent_type = "image" if use_vision else "chat"
 
     if not use_vision and PROVIDER == "groq":
-        # Multi-agent analysis: fast model picks best specialist + auto-activates tools
+        # Multi-agent analysis: picks best specialist + auto-activates tools
         analysis = await _agent_analyze(user_text)
+        agent_type = analysis["agent"]
 
         if requested in ("cytonix-auto", ""):
-            # No explicit model chosen → agent decides
             effective_model = analysis["model"]
             routed_to = effective_model
-        # else: user explicitly chose a model → respect it
 
-        # Merge agent's tool recommendations with user's manual settings
         flags.web  = flags.web  or analysis["web"]
         flags.calc = flags.calc or analysis["calc"]
 
     cytonix_id, groq_model = _resolve_model(effective_model, use_vision)
 
-    # Run tools and collect context
     tool_context = ""
     if any([flags.web, flags.weather, flags.calc]):
         _, tool_context = await _run_tools(user_text, flags)
 
-    sys_prompt = SYSTEM_PROMPT
+    # Pick specialized system prompt based on agent type
+    if agent_type == "code":
+        sys_prompt = SYSTEM_PROMPT_CODE
+    elif agent_type == "image":
+        sys_prompt = SYSTEM_PROMPT_IMAGE_AGENT
+    else:
+        sys_prompt = SYSTEM_PROMPT_CHAT_AGENT
+
     if flags.translate:
         sys_prompt += (
             "\n\nÜbersetzer-Modus aktiv: Wenn der Nutzer einen Text in eine andere Sprache "
@@ -816,7 +908,7 @@ async def chat(req: ChatRequest):
 
     if not reply:
         raise HTTPException(status_code=502, detail="Leere Antwort vom Modell.")
-    return ChatResponse(reply=reply, model=active_model, provider=PROVIDER, routed_to=routed_to)
+    return ChatResponse(reply=reply, model=active_model, provider=PROVIDER, routed_to=routed_to, agent=agent_type)
 
 
 if (PROJECT_ROOT / "index.html").exists():

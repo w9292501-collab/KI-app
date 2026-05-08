@@ -261,10 +261,14 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 .mic-btn.rec{background:var(--re);border-color:var(--re);color:#fff;animation:micPls 1.2s ease infinite}
 @keyframes micPls{0%,100%{box-shadow:0 0 0 0 rgba(255,107,107,.5)}50%{box-shadow:0 0 0 8px rgba(255,107,107,0)}}
 .mic-btn svg{width:16px;height:16px}
-.speak-btn{background:none;border:none;color:var(--mu);cursor:pointer;padding:4px 8px;border-radius:6px;display:inline-flex;align-items:center;gap:5px;font-size:.7rem;font-family:inherit;transition:all .15s;margin-top:8px}
-.speak-btn:hover{background:var(--s1);color:var(--t2)}
-.speak-btn.playing{color:var(--ac);background:rgba(124,109,250,.1)}
-.speak-btn svg{width:13px;height:13px}
+.speak-btn{width:32px;height:32px;border-radius:50%;background:var(--s1);border:1px solid var(--b1);color:var(--t2);cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;font-family:inherit;transition:all .18s;margin-top:10px}
+.speak-btn:hover{background:var(--s2);color:var(--t1);border-color:var(--b2);transform:scale(1.05)}
+.speak-btn.playing{color:var(--ac);background:rgba(124,109,250,.15);border-color:rgba(124,109,250,.45);animation:pls 1.6s ease infinite}
+.speak-btn svg{width:14px;height:14px}
+.speak-btn.loading svg{display:none}
+.speak-btn.loading::after{content:'';width:12px;height:12px;border:2px solid var(--b2);border-top-color:var(--ac);border-radius:50%;animation:sp .7s linear infinite}
+.speak-btn span{display:none}
+.agent-tag{font-size:.6rem;font-weight:500;color:var(--t2);background:rgba(124,109,250,.08);border:1px solid rgba(124,109,250,.22);padding:1px 7px;border-radius:10px;letter-spacing:0;text-transform:none}
 .inp-foot{margin-top:8px;font-size:.65rem;color:var(--mu);text-align:center}
 
 @media(max-width:640px){
@@ -528,12 +532,16 @@ function _initGoogleButton(clientId) {
   tryRender();
 }
 
+let _ttsAvailable = false;
+
 async function initAuth() {
   let cfg = { auth_required: false };
   try {
     const r = await fetch(CONFIG_URL, { signal: AbortSignal.timeout(8000) });
     if (r.ok) cfg = await r.json();
   } catch (_) {}
+
+  _ttsAvailable = !!cfg.tts_available;
 
   if (!cfg.auth_required) {
     initApp();
@@ -619,7 +627,7 @@ function openChat(id) {
     const inn = mkInner();
     c.messages.forEach(m => {
       if (m.role==='user') addUser(inn, m.content);
-      else addAI(inn, m.content, m.image, m.routed_to, m.imgPrompt);
+      else addAI(inn, m.content, m.image, m.routed_to, m.imgPrompt, m.agent);
     });
   }
   renderHist();
@@ -758,7 +766,7 @@ function addUser(inn, text) {
   el.innerHTML=`<div class="ub">${esc(text).replace(/\n/g,'<br/>')}</div>`;
   inn.appendChild(el); scrollBot();
 }
-function addAI(inn, text, imgUrl, routedTo, imgPrompt) {
+function addAI(inn, text, imgUrl, routedTo, imgPrompt, agent) {
   const el=document.createElement('div'); el.className='ma-row';
   const ttsAttr = escAttr(text);
   const uid = 'img-'+Date.now()+'-'+Math.floor(Math.random()*1e6);
@@ -777,7 +785,9 @@ function addAI(inn, text, imgUrl, routedTo, imgPrompt) {
        </div>`
     : '';
   const routedBadge = routedTo ? ` <span class="routed-badge" title="Multi-Agent-Routing">→ ${esc(MODEL_LABELS[routedTo] || routedTo)}</span>` : '';
-  el.innerHTML=`<div class="ava">CY</div><div class="ai-c"><div class="ai-lbl">Cytonix${routedBadge}</div><div class="ab">${md(text)}</div>${imgHtml}<button class="speak-btn" onclick="speakMsg(this)" data-tts="${ttsAttr}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg><span>Vorlesen</span></button></div>`;
+  const AGENT_LABELS = {code: 'Coder-Agent', chat: 'Chat-Agent', image: 'Bild-Agent'};
+  const agentTag = (typeof agent === 'string' && AGENT_LABELS[agent]) ? ` <span class="agent-tag">${AGENT_LABELS[agent]}</span>` : '';
+  el.innerHTML=`<div class="ava">CY</div><div class="ai-c"><div class="ai-lbl">Cytonix${routedBadge}${agentTag}</div><div class="ab">${md(text)}</div>${imgHtml}<button class="speak-btn" onclick="speakMsg(this)" data-tts="${ttsAttr}" title="Vorlesen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button></div>`;
   inn.appendChild(el); scrollBot();
   return el.querySelector('.ab');
 }
@@ -883,9 +893,53 @@ function toggleMic() {
 // TEXT-TO-SPEECH
 let currentSpeakBtn = null;
 
+let _currentAudio = null;
+const TTS_URL = API_BASE + '/api/tts';
+
+function _stopAllSpeech() {
+  if (_currentAudio) { try { _currentAudio.pause(); } catch(_){} _currentAudio = null; }
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  document.querySelectorAll('.speak-btn.playing,.speak-btn.loading').forEach(b => {
+    b.classList.remove('playing'); b.classList.remove('loading');
+  });
+}
+
+async function _serverTTS(text, btn) {
+  _stopAllSpeech();
+  btn.classList.add('loading');
+  currentSpeakBtn = btn;
+  try {
+    const res = await fetch(TTS_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', ...getAuthHeaders()},
+      body: JSON.stringify({text})
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    _currentAudio = audio;
+    btn.classList.remove('loading');
+    btn.classList.add('playing');
+    audio.onended = () => {
+      btn.classList.remove('playing');
+      URL.revokeObjectURL(url);
+      if (currentSpeakBtn === btn) currentSpeakBtn = null;
+      if (_currentAudio === audio) _currentAudio = null;
+    };
+    audio.onerror = audio.onended;
+    await audio.play();
+  } catch (e) {
+    btn.classList.remove('loading');
+    currentSpeakBtn = null;
+    // Fallback to browser TTS
+    if ('speechSynthesis' in window) _doSpeak(text, btn);
+  }
+}
+
 function _doSpeak(text, btn) {
+  if (!('speechSynthesis' in window)) return;
   speechSynthesis.cancel();
-  document.querySelectorAll('.speak-btn.playing').forEach(b => b.classList.remove('playing'));
   const clean = text.replace(/```[\s\S]*?```/g, ' Codeblock. ').replace(/[*#`_~]/g, '');
   const u = new SpeechSynthesisUtterance(clean);
   u.lang = 'de-DE';
@@ -900,23 +954,23 @@ function _doSpeak(text, btn) {
 }
 
 function speak(text, btn) {
+  if (currentSpeakBtn === btn) {
+    _stopAllSpeech();
+    currentSpeakBtn = null;
+    return;
+  }
+  if (_ttsAvailable) {
+    _serverTTS(text, btn);
+    return;
+  }
   if (!('speechSynthesis' in window)) {
     alert('Vorlese-Funktion wird von deinem Browser nicht unterstützt.');
     return;
   }
-  if (currentSpeakBtn === btn) {
-    speechSynthesis.cancel();
-    btn.classList.remove('playing');
-    currentSpeakBtn = null;
-    return;
-  }
-  // Voices may not be loaded yet on first call — wait for them
   const voices = speechSynthesis.getVoices();
   if (voices.length === 0) {
     speechSynthesis.onvoiceschanged = () => { speechSynthesis.onvoiceschanged = null; _doSpeak(text, btn); };
-    // Trigger loading on some browsers
-    speechSynthesis.speak(new SpeechSynthesisUtterance(''));
-    speechSynthesis.cancel();
+    try { speechSynthesis.speak(new SpeechSynthesisUtterance('')); speechSynthesis.cancel(); } catch(_){}
   } else {
     _doSpeak(text, btn);
   }
@@ -1093,15 +1147,16 @@ async function doSend() {
     const data = await res.json();
     const fullText = data.reply || '';
     const routedTo = data.routed_to || null;
+    const agent    = data.agent || null;
     if (!fullText) throw new Error('Leere Antwort vom Server — bitte erneut versuchen.');
 
     rmTyping();
-    const ab = addAI(inn2, '', null, routedTo, null);
+    const ab = addAI(inn2, '', null, routedTo, null, agent);
     await typeOut(ab, fullText);
     // Update speak button with the full text (addAI was called with empty string)
     const speakBtn = ab.closest('.ai-c')?.querySelector('.speak-btn');
     if (speakBtn) speakBtn.setAttribute('data-tts', fullText);
-    c.messages.push({role:'assistant', content: fullText, routed_to: routedTo});
+    c.messages.push({role:'assistant', content: fullText, routed_to: routedTo, agent});
     save();
 
   } catch (err) {
@@ -1496,6 +1551,7 @@ function exitVoice() {
   voiceMode = false;
   document.getElementById('voiceOverlay').classList.remove('show');
   if (voiceRec) { try { voiceRec.abort(); } catch(_){} voiceRec = null; }
+  if (_currentAudio) { try { _currentAudio.pause(); } catch(_){} _currentAudio = null; }
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   stopVoiceScreen();
 }
@@ -1675,22 +1731,47 @@ async function voiceProcessText(text) {
   }
 }
 
-function voiceSpeak(text) {
-  if (!('speechSynthesis' in window)) return;
-  speechSynthesis.cancel();
+async function voiceSpeak(text) {
+  // Stop any previous audio
+  if (_currentAudio) { try { _currentAudio.pause(); } catch(_){} _currentAudio = null; }
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+
+  const onDone = () => {
+    if (voiceMode && !voiceMuted) setTimeout(startVoiceListen, 250);
+    else if (voiceMode) setVoiceState(null, 'Mikro stumm – tippe um wieder zuzuhören', '');
+  };
+
+  // Try server TTS first (ElevenLabs)
+  if (_ttsAvailable) {
+    try {
+      const res = await fetch(TTS_URL, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json', ...getAuthHeaders()},
+        body: JSON.stringify({text})
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        _currentAudio = audio;
+        audio.onended = () => { URL.revokeObjectURL(url); if (_currentAudio===audio) _currentAudio = null; onDone(); };
+        audio.onerror = audio.onended;
+        await audio.play();
+        return;
+      }
+    } catch(_) { /* fall through */ }
+  }
+
+  // Browser TTS fallback
+  if (!('speechSynthesis' in window)) { onDone(); return; }
   const clean = text.replace(/```[\s\S]*?```/g, ' Codeblock. ').replace(/[*#`_~]/g, '');
   const u = new SpeechSynthesisUtterance(clean);
   u.lang = 'de-DE';
   const voices = speechSynthesis.getVoices();
   const de = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('de'));
   if (de) u.voice = de;
-  u.onend = () => {
-    if (voiceMode && !voiceMuted) setTimeout(startVoiceListen, 250);
-    else if (voiceMode) setVoiceState(null, 'Mikro stumm – tippe um wieder zuzuhören', '');
-  };
-  u.onerror = () => {
-    if (voiceMode && !voiceMuted) setTimeout(startVoiceListen, 250);
-  };
+  u.onend   = onDone;
+  u.onerror = onDone;
   speechSynthesis.speak(u);
 }
 
