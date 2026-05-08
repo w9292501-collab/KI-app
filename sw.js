@@ -1,8 +1,8 @@
-const CACHE = 'cytonix-v1';
-const SHELL = ['/', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
+const CACHE = 'cytonix-v3';
+const STATIC = ['/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(STATIC)));
   self.skipWaiting();
 });
 
@@ -24,7 +24,21 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // App shell: cache-first, then network
+  // HTML (root): network-first so new deploys are always picked up
+  if (url.pathname === '/' || url.pathname === '/index.html') {
+    e.respondWith(
+      fetch(e.request).then(res => {
+        if (res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
+        return res;
+      }).catch(() => caches.match('/'))
+    );
+    return;
+  }
+
+  // Static assets (icons, manifest): cache-first
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;

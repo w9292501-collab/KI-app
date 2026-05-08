@@ -268,7 +268,7 @@ html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:var(--
 .speak-btn.loading svg{display:none}
 .speak-btn.loading::after{content:'';width:12px;height:12px;border:2px solid var(--b2);border-top-color:var(--ac);border-radius:50%;animation:sp .7s linear infinite}
 .speak-btn span{display:none}
-.agent-tag{font-size:.6rem;font-weight:500;color:var(--t2);background:rgba(124,109,250,.08);border:1px solid rgba(124,109,250,.22);padding:1px 7px;border-radius:10px;letter-spacing:0;text-transform:none}
+.agent-tag{font-size:.68rem;font-weight:600;color:#a78bfa;background:rgba(124,109,250,.15);border:1px solid rgba(124,109,250,.4);padding:2px 8px;border-radius:10px;letter-spacing:0;text-transform:none}
 .inp-foot{margin-top:8px;font-size:.65rem;color:var(--mu);text-align:center}
 
 @media(max-width:640px){
@@ -914,7 +914,10 @@ async function _serverTTS(text, btn) {
       headers: {'Content-Type':'application/json', ...getAuthHeaders()},
       body: JSON.stringify({text})
     });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || 'HTTP ' + res.status);
+    }
     const blob = await res.blob();
     const url  = URL.createObjectURL(blob);
     const audio = new Audio(url);
@@ -927,14 +930,36 @@ async function _serverTTS(text, btn) {
       if (currentSpeakBtn === btn) currentSpeakBtn = null;
       if (_currentAudio === audio) _currentAudio = null;
     };
-    audio.onerror = audio.onended;
-    await audio.play();
+    audio.onerror = () => {
+      btn.classList.remove('playing');
+      URL.revokeObjectURL(url);
+      if (_currentAudio === audio) _currentAudio = null;
+      _showToast('Audio konnte nicht abgespielt werden.');
+    };
+    audio.play().catch(err => {
+      btn.classList.remove('playing', 'loading');
+      _showToast('Autoplay blockiert — bitte nochmal tippen.');
+    });
   } catch (e) {
     btn.classList.remove('loading');
     currentSpeakBtn = null;
-    // Fallback to browser TTS
+    _showToast('Stimme nicht verfügbar: ' + (e.message || 'Fehler'));
     if ('speechSynthesis' in window) _doSpeak(text, btn);
   }
+}
+
+function _showToast(msg) {
+  let t = document.getElementById('_toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = '_toast';
+    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#333;color:#f0f0f0;padding:8px 16px;border-radius:20px;font-size:.78rem;z-index:9999;pointer-events:none;transition:opacity .3s';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._hide);
+  t._hide = setTimeout(() => { t.style.opacity = '0'; }, 3500);
 }
 
 function _doSpeak(text, btn) {
@@ -1522,7 +1547,8 @@ function setVoiceState(state, statusMsg, transcript) {
 function enterVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { alert('Spracheingabe wird von deinem Browser nicht unterstützt. Probier Chrome.'); return; }
-  if (!('speechSynthesis' in window)) { alert('Vorlese-Funktion nicht unterstützt.'); return; }
+  // Only block if neither ElevenLabs nor browser TTS is available
+  if (!_ttsAvailable && !('speechSynthesis' in window)) { alert('Vorlese-Funktion nicht unterstützt.'); return; }
 
   voiceMode = true;
   voiceMuted = false;
@@ -1732,16 +1758,20 @@ async function voiceProcessText(text) {
 }
 
 async function voiceSpeak(text) {
-  // Stop any previous audio
   if (_currentAudio) { try { _currentAudio.pause(); } catch(_){} _currentAudio = null; }
   if ('speechSynthesis' in window) speechSynthesis.cancel();
 
+  let done = false;
   const onDone = () => {
+    if (done) return;
+    done = true;
     if (voiceMode && !voiceMuted) setTimeout(startVoiceListen, 250);
     else if (voiceMode) setVoiceState(null, 'Mikro stumm – tippe um wieder zuzuhören', '');
   };
+  // Safety: always resume listening after 60s even if TTS hangs
+  const safetyTimer = setTimeout(onDone, 60000);
+  const finish = () => { clearTimeout(safetyTimer); onDone(); };
 
-  // Try server TTS first (ElevenLabs)
   if (_ttsAvailable) {
     try {
       const res = await fetch(TTS_URL, {
@@ -1754,15 +1784,18 @@ async function voiceSpeak(text) {
         const url  = URL.createObjectURL(blob);
         const audio = new Audio(url);
         _currentAudio = audio;
-        audio.onended = () => { URL.revokeObjectURL(url); if (_currentAudio===audio) _currentAudio = null; onDone(); };
+        audio.onended = () => { URL.revokeObjectURL(url); if (_currentAudio===audio) _currentAudio=null; finish(); };
         audio.onerror = audio.onended;
-        await audio.play();
+        audio.play().catch(() => { URL.revokeObjectURL(url); _browserVoiceSpeak(text, finish); });
         return;
       }
-    } catch(_) { /* fall through */ }
+    } catch(_) { /* fall through to browser TTS */ }
   }
 
-  // Browser TTS fallback
+  _browserVoiceSpeak(text, finish);
+}
+
+function _browserVoiceSpeak(text, onDone) {
   if (!('speechSynthesis' in window)) { onDone(); return; }
   const clean = text.replace(/```[\s\S]*?```/g, ' Codeblock. ').replace(/[*#`_~]/g, '');
   const u = new SpeechSynthesisUtterance(clean);
