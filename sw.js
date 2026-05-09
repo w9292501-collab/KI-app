@@ -1,18 +1,19 @@
-const CACHE = 'cytonix-v1';
-const SHELL = ['/', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
+const CACHE = 'cytonix-v4';
+const STATIC = ['/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(STATIC)));
   self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    )
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ type: 'window' }))
+      .then(clients => Promise.all(clients.map(c => c.navigate(c.url))))
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', e => {
@@ -24,7 +25,21 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // App shell: cache-first, then network
+  // HTML: always network-first (never serve stale app shell)
+  if (url.pathname === '/' || url.pathname === '/index.html' || url.pathname === '/sw.js') {
+    e.respondWith(
+      fetch(e.request, { cache: 'no-cache' }).then(res => {
+        if (res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
+        return res;
+      }).catch(() => caches.match('/'))
+    );
+    return;
+  }
+
+  // Static assets: cache-first
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;
